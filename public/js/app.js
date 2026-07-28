@@ -543,7 +543,13 @@ function renderGame() {
     updateAmmoHud();
   }
 
-  setHidden(elements.finishRound, !(isHost && roomState.phase === "SEARCH"));
+  // F-22: el anfitrión puede cortar la ronda tanto en preparación como en búsqueda
+  // (el servidor ya lo permite). Útil para abortar una preparación empezada por error,
+  // incluso si el anfitrión es el cazador y está tras el telón.
+  const canFinishRound =
+    isHost &&
+    (roomState.phase === "PREPARATION" || roomState.phase === "SEARCH");
+  setHidden(elements.finishRound, !canFinishRound);
   setHidden(elements.returnLobby, !(isHost && roomState.phase === "RESULTS"));
 
   updateStage();
