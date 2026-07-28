@@ -13,14 +13,22 @@ const WORLD = {
   height: 1440
 };
 
-// Límites de zoom por rol. minZoom = 1 significa "100 % (1 píxel de mapa = 1 píxel de pantalla)".
-// El cazador tiene un zoom más limitado para mantener la dificultad.
+// Límites de zoom por rol. El zoom es la escala mapa->pantalla: 1.0 = 100 %
+// (1 píxel de mapa por píxel de pantalla).
+// - HIDER: se acerca hasta el 800 % para pintar el monigote a detalle con el pincel
+//   fino del módulo 4 (con el monigote a 37x66, por debajo de ahí el pincel se queda
+//   grueso), y se aleja hasta el 50 % para comprobar cómo lo verá el cazador antes de
+//   fijarse.
+// - HUNTER: vista de conjunto obligatoria y poco margen (75-85 %). El 75 % es el encaje
+//   exacto del mapa 2560x1440 en una pantalla 1080p, así que entra viendo el mapa entero
+//   sin marco; en pantallas más anchas o más pequeñas tendrá que arrastrar. El techo bajo
+//   es lo que da dificultad al juego.
 const CAMERA = {
   zoomStep: 0.15,
   roles: {
-    HIDER: { minZoom: 1.0, maxZoom: 2.5 },
-    HUNTER: { minZoom: 1.0, maxZoom: 1.5 },
-    UNASSIGNED: { minZoom: 1.0, maxZoom: 2.5 }
+    HIDER: { minZoom: 0.5, maxZoom: 8.0 },
+    HUNTER: { minZoom: 0.75, maxZoom: 0.85 },
+    UNASSIGNED: { minZoom: 0.5, maxZoom: 8.0 }
   }
 };
 
