@@ -325,10 +325,15 @@ input:focus {
   line-height: 1;
 }
 
+.camera-hint span {
+  display: block;
+}
+
 .camera-hint {
   position: absolute;
   left: 0.6rem;
   bottom: 0.6rem;
+  max-width: min(48%, 460px);
   z-index: 5;
   margin: 0;
   padding: 0.3rem 0.5rem;
