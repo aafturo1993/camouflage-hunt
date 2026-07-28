@@ -95,8 +95,30 @@
           </div>
 
           <p id="camera-hint" class="camera-hint">
-            Arrastra para mover · Rueda para acercar o alejar
+            Zoom con la rueda o + / − · Te mueves con las flechas · En la
+            búsqueda se arrastra el mapa
           </p>
+
+          <!--
+            Barra de pintura del Módulo 4. El motor la muestra y la oculta con la
+            clase "hidden" y lee data-brush; el aspecto es cosa de Diseño.
+          -->
+          <div id="paint-toolbar" class="paint-toolbar hidden">
+            <button class="paint-brush" data-brush="xs" type="button">
+              Muy fino
+            </button>
+            <button class="paint-brush" data-brush="s" type="button">Fino</button>
+            <button class="paint-brush" data-brush="m" type="button">Medio</button>
+            <button class="paint-brush" data-brush="l" type="button">Grueso</button>
+
+            <span class="paint-separator" aria-hidden="true"></span>
+
+            <button id="paint-eyedropper" class="paint-tool" type="button">
+              Cuentagotas
+            </button>
+            <span id="paint-color" class="paint-color" aria-label="Color actual"></span>
+            <button id="paint-clear" class="paint-tool" type="button">Limpiar</button>
+          </div>
 
           <div id="camera-controls" class="camera-controls">
             <button id="zoom-out" class="compact" type="button" aria-label="Alejar">
