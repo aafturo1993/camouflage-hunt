@@ -29,6 +29,8 @@ const elements = {
   roleHelp: document.querySelector("#role-help"),
   cameraHint: document.querySelector("#camera-hint"),
   cameraControls: document.querySelector("#camera-controls"),
+  ammoHud: document.querySelector("#ammo-hud"),
+  ammoCount: document.querySelector("#ammo-count"),
   zoomIn: document.querySelector("#zoom-in"),
   zoomOut: document.querySelector("#zoom-out"),
   finishRound: document.querySelector("#finish-round"),
@@ -42,6 +44,11 @@ let countdownInterval = null;
 let clientConfig = null;
 let configPromise = null;
 let renderer = null;
+
+// Control del escenario y del disparo.
+let lastStageKey = null;
+let shotCooldownUntil = 0;
+let shotsRemaining = 0;
 
 function setHidden(element, hidden) {
   element.classList.toggle("hidden", hidden);

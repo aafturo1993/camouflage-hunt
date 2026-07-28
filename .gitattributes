@@ -1,0 +1,20 @@
+# Normalización de finales de línea.
+# Evita diffs falsos cuando varias terminales o equipos editan los mismos archivos.
+# En el repositorio todo se guarda con LF; en Windows se trabaja con normalidad.
+* text=auto eol=lf
+
+# Binarios: nunca convertir ni intentar diferenciar.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.mp3 binary
+*.ogg binary
+*.wav binary
+*.woff binary
+*.woff2 binary
+
+# Archivo generado: no ensucia las revisiones ni cuenta como código.
+package-lock.json -diff linguist-generated

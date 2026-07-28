@@ -1,21 +1,36 @@
 "use strict";
 
 /**
- * GameRenderer: dibuja el mapa sobre un <canvas> usando la Camera.
+ * GameRenderer: dibuja el mapa y los personajes sobre un <canvas> usando la Camera.
  *
- * Responsabilidades del Módulo 2:
- *   - Cargar la imagen del mapa.
- *   - Ajustar el canvas al tamaño real (devicePixelRatio) y a los cambios de ventana.
- *   - Bucle de render con requestAnimationFrame.
- *   - Entrada de cámara: arrastre (pointer) y zoom (rueda) centrado en el cursor.
+ * Modos de control:
+ *   - "IDLE"   : solo mapa (o nada). Cámara con arrastre y zoom.
+ *   - "PREP"   : escondido en preparación. Mueve su personaje con flechas/WASD;
+ *                la cámara sigue al personaje; el arrastre queda desactivado.
+ *   - "SEARCH" : búsqueda. Cámara con arrastre y zoom; se dibujan todos los
+ *                personajes congelados. Si `allowShoot`, el clic dispara.
  *
- * Los personajes, la pintura y la detección llegan en módulos posteriores;
- * este renderer expone la cámara y las conversiones de coordenadas que usarán.
+ * Coordenadas de mundo: la posición del personaje es de MUNDO; la cámara la
+ * transforma para dibujar. El personaje se ancla por su CENTRO.
  */
 (function () {
   const WHEEL_ZOOM_IN = 1.1;
   const WHEEL_ZOOM_OUT = 1 / 1.1;
   const BUTTON_ZOOM_STEP = 1.15;
+  const CLICK_THRESHOLD_PX = 6;
+  const MOVE_SEND_INTERVAL_MS = 90;
+  const MAX_DELTA_SECONDS = 0.05;
+
+  const MOVE_KEYS = {
+    ArrowUp: "up",
+    ArrowDown: "down",
+    ArrowLeft: "left",
+    ArrowRight: "right",
+    KeyW: "up",
+    KeyS: "down",
+    KeyA: "left",
+    KeyD: "right"
+  };
 
   class GameRenderer {
     constructor(canvas) {
@@ -23,16 +38,40 @@
       this.ctx = canvas.getContext("2d");
       this.world = { width: 2560, height: 1440 };
       this.camera = new window.Camera(this.world);
+
       this.mapImage = null;
       this.mapReady = false;
       this.mapId = null;
+
+      this.character = { sprite: null, width: 74, height: 132, speed: 340 };
+      this.sprite = null;
+      this.spriteReady = false;
+
+      this.mode = "IDLE";
+      this.self = null;
+      this.characters = [];
+      this.effects = [];
+      this.allowShoot = false;
+
+      this.onSelfMove = null;
+      this.onShoot = null;
+
       this.running = false;
       this._rafId = null;
-      this._drag = null;
+      this._lastTs = 0;
       this._dpr = 1;
-      this._onResize = () => this.resize();
 
-      this._bindInput();
+      this._keys = new Set();
+      this._lastSentPos = null;
+      this._lastSentAt = 0;
+
+      this._pointer = null; // { startX, startY, lastX, lastY, moved }
+
+      this._onResize = () => this.resize();
+      this._onKeyDown = (event) => this._handleKeyDown(event);
+      this._onKeyUp = (event) => this._handleKeyUp(event);
+
+      this._bindPointerInput();
     }
 
     setWorld(world) {
@@ -44,10 +83,37 @@
       this.camera.setZoomLimits(minZoom, maxZoom);
     }
 
-    /**
-     * Carga un mapa. Si ya es el mismo mapId no hace nada (evita recargar la imagen).
-     * map = { id, image, width, height }
-     */
+    setCharacterConfig(config) {
+      if (!config) {
+        return;
+      }
+      this.character = {
+        sprite: config.sprite,
+        width: config.width,
+        height: config.height,
+        speed: config.speed
+      };
+      if (config.sprite && this.sprite?.src?.endsWith(config.sprite) !== true) {
+        this._loadSprite(config.sprite);
+      }
+    }
+
+    _loadSprite(src) {
+      this.spriteReady = false;
+      const image = new Image();
+      image.onload = () => {
+        this.sprite = image;
+        this.spriteReady = true;
+      };
+      image.onerror = () => {
+        this.sprite = null;
+        this.spriteReady = false;
+        console.error("No se pudo cargar el sprite del personaje:", src);
+      };
+      image.src = src;
+      this.sprite = image;
+    }
+
     loadMap(map) {
       if (this.mapId === map.id) {
         return;
@@ -73,6 +139,46 @@
       this.camera.centerOnWorld(this.world.width / 2, this.world.height / 2);
     }
 
+    // --- Modos ---------------------------------------------------------------
+
+    setModeIdle() {
+      this.mode = "IDLE";
+      this.self = null;
+      this.characters = [];
+      this.effects = [];
+      this.allowShoot = false;
+    }
+
+    setModePrepHider(startPosition) {
+      this.mode = "PREP";
+      this.allowShoot = false;
+      this.characters = [];
+      this.effects = [];
+      this.self = this._clampCharacter(
+        startPosition ?? { x: this.world.width / 2, y: this.world.height / 2 }
+      );
+      this._lastSentPos = { ...this.self };
+      this.camera.centerOnWorld(this.self.x, this.self.y);
+    }
+
+    setModeSearch(options = {}) {
+      this.mode = "SEARCH";
+      this.self = null;
+      this.allowShoot = Boolean(options.shoot);
+      this.effects = [];
+      this._keys.clear();
+    }
+
+    setCharacters(list) {
+      this.characters = Array.isArray(list) ? list : [];
+    }
+
+    spawnShot(x, y, hit) {
+      this.effects.push({ x, y, hit: Boolean(hit), birth: null });
+    }
+
+    // --- Ciclo de vida -------------------------------------------------------
+
     start() {
       if (this.running) {
         this.resize();
@@ -80,13 +186,16 @@
       }
       this.running = true;
       window.addEventListener("resize", this._onResize);
+      window.addEventListener("keydown", this._onKeyDown);
+      window.addEventListener("keyup", this._onKeyUp);
       this.resize();
 
-      const loop = () => {
+      const loop = (timestamp) => {
         if (!this.running) {
           return;
         }
-        this.render();
+        this._update(timestamp);
+        this.render(timestamp);
         this._rafId = window.requestAnimationFrame(loop);
       };
       this._rafId = window.requestAnimationFrame(loop);
@@ -99,7 +208,11 @@
         this._rafId = null;
       }
       window.removeEventListener("resize", this._onResize);
-      this._drag = null;
+      window.removeEventListener("keydown", this._onKeyDown);
+      window.removeEventListener("keyup", this._onKeyUp);
+      this._pointer = null;
+      this._keys.clear();
+      this._lastTs = 0;
     }
 
     resize() {
@@ -115,27 +228,85 @@
       this.camera.setViewport(cssWidth, cssHeight);
     }
 
-    render() {
+    // --- Actualización -------------------------------------------------------
+
+    _update(timestamp) {
+      const previous = this._lastTs || timestamp;
+      const dt = Math.min(MAX_DELTA_SECONDS, (timestamp - previous) / 1000);
+      this._lastTs = timestamp;
+
+      if (this.mode === "PREP" && this.self) {
+        this._updateMovement(dt, timestamp);
+        this.camera.centerOnWorld(this.self.x, this.self.y);
+      }
+    }
+
+    _updateMovement(dt, timestamp) {
+      let dx = 0;
+      let dy = 0;
+      if (this._keys.has("left")) dx -= 1;
+      if (this._keys.has("right")) dx += 1;
+      if (this._keys.has("up")) dy -= 1;
+      if (this._keys.has("down")) dy += 1;
+
+      if (dx !== 0 || dy !== 0) {
+        const length = Math.hypot(dx, dy) || 1;
+        const step = this.character.speed * dt;
+        this.self.x += (dx / length) * step;
+        this.self.y += (dy / length) * step;
+        this.self = this._clampCharacter(this.self);
+      }
+
+      // Envío al servidor con límite de frecuencia (no en cada frame).
+      const moved =
+        !this._lastSentPos ||
+        this._lastSentPos.x !== this.self.x ||
+        this._lastSentPos.y !== this.self.y;
+      if (moved && timestamp - this._lastSentAt >= MOVE_SEND_INTERVAL_MS) {
+        this._lastSentAt = timestamp;
+        this._lastSentPos = { x: this.self.x, y: this.self.y };
+        if (typeof this.onSelfMove === "function") {
+          this.onSelfMove({
+            x: Math.round(this.self.x),
+            y: Math.round(this.self.y)
+          });
+        }
+      }
+    }
+
+    _clampCharacter(position) {
+      const halfWidth = this.character.width / 2;
+      const halfHeight = this.character.height / 2;
+      return {
+        x: clamp(position.x, halfWidth, this.world.width - halfWidth),
+        y: clamp(position.y, halfHeight, this.world.height - halfHeight)
+      };
+    }
+
+    // --- Render --------------------------------------------------------------
+
+    render(timestamp) {
       const ctx = this.ctx;
       const dpr = this._dpr;
       const viewportWidth = this.camera.viewport.width;
       const viewportHeight = this.camera.viewport.height;
 
-      // Trabajamos en píxeles CSS; el DPR se aplica una sola vez aquí.
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, viewportWidth, viewportHeight);
-
       ctx.fillStyle = "#0f1419";
       ctx.fillRect(0, 0, viewportWidth, viewportHeight);
 
       if (this.mapReady && this.mapImage) {
         const topLeft = this.camera.worldToScreen(0, 0);
-        const drawWidth = this.world.width * this.camera.zoom;
-        const drawHeight = this.world.height * this.camera.zoom;
-
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = "high";
-        ctx.drawImage(this.mapImage, topLeft.x, topLeft.y, drawWidth, drawHeight);
+        ctx.drawImage(
+          this.mapImage,
+          topLeft.x,
+          topLeft.y,
+          this.world.width * this.camera.zoom,
+          this.world.height * this.camera.zoom
+        );
       } else {
         ctx.fillStyle = "#c8d2d8";
         ctx.font = "16px system-ui, sans-serif";
@@ -143,7 +314,117 @@
         ctx.textBaseline = "middle";
         ctx.fillText("Cargando mapa…", viewportWidth / 2, viewportHeight / 2);
       }
+
+      if (this.mode === "PREP" && this.self) {
+        this._drawCharacter(this.self.x, this.self.y, { isSelf: true });
+      } else if (this.mode === "SEARCH") {
+        for (const character of this.characters) {
+          this._drawCharacter(character.x, character.y, {
+            found: character.found
+          });
+        }
+      }
+
+      this._drawEffects(timestamp);
     }
+
+    _drawCharacter(worldX, worldY, options = {}) {
+      const ctx = this.ctx;
+      const zoom = this.camera.zoom;
+      const screen = this.camera.worldToScreen(worldX, worldY);
+      const width = this.character.width * zoom;
+      const height = this.character.height * zoom;
+      const left = screen.x - width / 2;
+      const top = screen.y - height / 2;
+
+      ctx.save();
+      if (options.found) {
+        ctx.globalAlpha = 0.55;
+      }
+
+      if (this.spriteReady && this.sprite) {
+        ctx.drawImage(this.sprite, left, top, width, height);
+      } else {
+        // Silueta de reserva si el sprite aún no cargó.
+        ctx.fillStyle = "#f2f4f6";
+        ctx.strokeStyle = "#9aa4ad";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(screen.x, screen.y, width / 2, height / 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      if (options.found) {
+        // Marca de "encontrado": aspa roja sobre el personaje.
+        ctx.save();
+        ctx.strokeStyle = "#d1332e";
+        ctx.lineWidth = Math.max(3, 5 * zoom);
+        ctx.lineCap = "round";
+        const r = Math.min(width, height) * 0.35;
+        ctx.beginPath();
+        ctx.moveTo(screen.x - r, screen.y - r);
+        ctx.lineTo(screen.x + r, screen.y + r);
+        ctx.moveTo(screen.x + r, screen.y - r);
+        ctx.lineTo(screen.x - r, screen.y + r);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      if (options.isSelf) {
+        // Etiqueta "TÚ" para que el jugador identifique su personaje.
+        ctx.save();
+        ctx.fillStyle = "#1b6ef3";
+        ctx.font = "bold 13px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "bottom";
+        ctx.fillText("TÚ", screen.x, top - 4);
+        ctx.restore();
+      }
+    }
+
+    _drawEffects(timestamp) {
+      if (this.effects.length === 0) {
+        return;
+      }
+      const ctx = this.ctx;
+      const remaining = [];
+
+      for (const effect of this.effects) {
+        if (effect.birth === null) {
+          effect.birth = timestamp;
+        }
+        const age = timestamp - effect.birth;
+        const duration = effect.hit ? 700 : 350;
+        if (age > duration) {
+          continue;
+        }
+        remaining.push(effect);
+
+        const progress = age / duration;
+        const screen = this.camera.worldToScreen(effect.x, effect.y);
+        const maxRadius = (effect.hit ? 46 : 26) * this.camera.zoom;
+        const radius = maxRadius * progress;
+
+        ctx.save();
+        ctx.globalAlpha = 1 - progress;
+        ctx.strokeStyle = effect.hit ? "#ff7a1a" : "#c8d2d8";
+        ctx.lineWidth = effect.hit ? 5 : 3;
+        ctx.beginPath();
+        ctx.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+        if (effect.hit) {
+          ctx.fillStyle = "rgba(255, 122, 26, 0.25)";
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
+      this.effects = remaining;
+    }
+
+    // --- Zoom por botones ----------------------------------------------------
 
     zoomInCentered() {
       this.camera.zoomAt(
@@ -161,56 +442,107 @@
       );
     }
 
-    _localPointer(event) {
-      const rect = this.canvas.getBoundingClientRect();
-      return {
-        x: event.clientX - rect.left,
-        y: event.clientY - rect.top
-      };
+    // --- Entrada de teclado --------------------------------------------------
+
+    _handleKeyDown(event) {
+      if (this.mode !== "PREP") {
+        return;
+      }
+      const direction = MOVE_KEYS[event.code];
+      if (!direction) {
+        return;
+      }
+      event.preventDefault();
+      this._keys.add(direction);
     }
 
-    _bindInput() {
+    _handleKeyUp(event) {
+      const direction = MOVE_KEYS[event.code];
+      if (!direction) {
+        return;
+      }
+      this._keys.delete(direction);
+    }
+
+    // --- Entrada de puntero (arrastre y disparo) -----------------------------
+
+    _localPointer(event) {
+      const rect = this.canvas.getBoundingClientRect();
+      return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    }
+
+    _bindPointerInput() {
       const canvas = this.canvas;
 
       canvas.addEventListener("pointerdown", (event) => {
-        // Solo botón principal para el ratón; táctil pasa igualmente.
         if (event.pointerType === "mouse" && event.button !== 0) {
           return;
         }
         const point = this._localPointer(event);
-        this._drag = { x: point.x, y: point.y };
-        canvas.classList.add("grabbing");
+        this._pointer = {
+          startX: point.x,
+          startY: point.y,
+          lastX: point.x,
+          lastY: point.y,
+          moved: false
+        };
         try {
           canvas.setPointerCapture(event.pointerId);
         } catch {
-          /* setPointerCapture puede fallar en algunos navegadores; no es crítico. */
+          /* no crítico */
         }
       });
 
       canvas.addEventListener("pointermove", (event) => {
-        if (!this._drag) {
+        if (!this._pointer) {
           return;
         }
         const point = this._localPointer(event);
-        this.camera.panByScreen(point.x - this._drag.x, point.y - this._drag.y);
-        this._drag = { x: point.x, y: point.y };
+        const dx = point.x - this._pointer.lastX;
+        const dy = point.y - this._pointer.lastY;
+        this._pointer.lastX = point.x;
+        this._pointer.lastY = point.y;
+
+        const totalDx = point.x - this._pointer.startX;
+        const totalDy = point.y - this._pointer.startY;
+        if (Math.hypot(totalDx, totalDy) > CLICK_THRESHOLD_PX) {
+          this._pointer.moved = true;
+        }
+
+        // El arrastre solo mueve la cámara fuera del modo preparación.
+        if (this.mode !== "PREP") {
+          canvas.classList.add("grabbing");
+          this.camera.panByScreen(dx, dy);
+        }
       });
 
-      const endDrag = (event) => {
-        if (!this._drag) {
+      const endPointer = (event) => {
+        if (!this._pointer) {
           return;
         }
-        this._drag = null;
+        const wasClick = !this._pointer.moved;
+        const point = this._localPointer(event);
+        this._pointer = null;
         canvas.classList.remove("grabbing");
         try {
           canvas.releasePointerCapture(event.pointerId);
         } catch {
           /* ignorar */
         }
+
+        if (wasClick && this.mode === "SEARCH" && this.allowShoot) {
+          const world = this.camera.screenToWorld(point.x, point.y);
+          if (typeof this.onShoot === "function") {
+            this.onShoot({ x: Math.round(world.x), y: Math.round(world.y) });
+          }
+        }
       };
 
-      canvas.addEventListener("pointerup", endDrag);
-      canvas.addEventListener("pointercancel", endDrag);
+      canvas.addEventListener("pointerup", endPointer);
+      canvas.addEventListener("pointercancel", () => {
+        this._pointer = null;
+        canvas.classList.remove("grabbing");
+      });
 
       canvas.addEventListener(
         "wheel",
@@ -223,6 +555,12 @@
         { passive: false }
       );
     }
+  }
+
+  function clamp(value, min, max) {
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
   }
 
   window.GameRenderer = GameRenderer;

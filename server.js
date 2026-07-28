@@ -385,7 +385,8 @@ function addPlayerToRoom(socket, room, name) {
     name,
     ready: false,
     connected: true,
-    found: false
+    found: false,
+    position: null
   };
 
   room.players.set(socket.id, player);
@@ -413,6 +414,8 @@ io.on("connection", (socket) => {
         hunterId: null,
         lastHunterId: null,
         hunterHistory: [],
+        hunterShotsRemaining: 0,
+        lastShotAt: 0,
         round: 0,
         mapId: DEFAULT_MAP_ID,
         phaseEndsAt: null,
@@ -540,6 +543,111 @@ io.on("connection", (socket) => {
 
       resetToLobby(room);
       callback({ ok: true });
+    } catch (error) {
+      callback({ ok: false, message: error.message });
+    }
+  });
+
+  socket.on("player:move", (payload, callback = () => {}) => {
+    try {
+      const room = getPlayerRoom(socket);
+      const player = room?.players.get(socket.id);
+
+      if (!room || !player) {
+        throw new Error("No perteneces a ninguna sala.");
+      }
+      if (room.phase !== "PREPARATION") {
+        throw new Error("Solo puedes moverte durante la preparación.");
+      }
+      if (room.hunterId === socket.id) {
+        throw new Error("El cazador no controla ningún personaje.");
+      }
+
+      const x = Number(payload?.x);
+      const y = Number(payload?.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        throw new Error("Posición inválida.");
+      }
+
+      // El servidor valida: la posición se recorta a los límites del mapa.
+      player.position = clampPosition({ x, y });
+      callback({ ok: true, position: player.position });
+    } catch (error) {
+      callback({ ok: false, message: error.message });
+    }
+  });
+
+  socket.on("hunter:shoot", (payload, callback = () => {}) => {
+    try {
+      const room = getPlayerRoom(socket);
+      if (!room) {
+        throw new Error("No perteneces a ninguna sala.");
+      }
+      if (room.phase !== "SEARCH") {
+        throw new Error("Solo puedes disparar durante la búsqueda.");
+      }
+      if (room.hunterId !== socket.id) {
+        throw new Error("Solo el cazador puede disparar.");
+      }
+      if (room.hunterShotsRemaining <= 0) {
+        throw new Error("Te has quedado sin disparos.");
+      }
+
+      const now = Date.now();
+      const sinceLast = now - room.lastShotAt;
+      if (sinceLast < HUNTER.shotCooldownMs) {
+        throw new Error("Estás recargando.");
+      }
+
+      const x = Number(payload?.x);
+      const y = Number(payload?.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        throw new Error("Coordenadas inválidas.");
+      }
+
+      room.lastShotAt = now;
+      room.hunterShotsRemaining -= 1;
+
+      let hitPlayer = null;
+      for (const player of room.players.values()) {
+        if (player.id === room.hunterId || player.found || !player.position) {
+          continue;
+        }
+        if (isInsideCharacter(x, y, player.position)) {
+          hitPlayer = player;
+          break;
+        }
+      }
+
+      if (hitPlayer) {
+        hitPlayer.found = true;
+        hitPlayer.foundAt = now;
+      }
+
+      // Efecto visual para todos (escondidos, cazador y encontrados).
+      io.to(room.code).emit("game:shot", {
+        x,
+        y,
+        hit: Boolean(hitPlayer)
+      });
+      emitCharacters(room);
+
+      const remainingHiders = [...room.players.values()].filter(
+        (player) =>
+          player.id !== room.hunterId && player.connected && !player.found
+      );
+
+      callback({
+        ok: true,
+        hit: Boolean(hitPlayer),
+        remaining: room.hunterShotsRemaining
+      });
+
+      if (remainingHiders.length === 0) {
+        finishRound(room);
+      } else {
+        emitRoomState(room);
+      }
     } catch (error) {
       callback({ ok: false, message: error.message });
     }
