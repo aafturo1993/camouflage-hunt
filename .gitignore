@@ -2,3 +2,7 @@ node_modules/
 npm-debug.log*
 .env
 .DS_Store
+
+# Notas de trabajo locales de cada terminal, no forman parte del proyecto
+CLAUDE.md
+.claude/
