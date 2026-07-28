@@ -120,13 +120,43 @@ function clampNumber(value, min, max) {
   return value;
 }
 
-/** Mantiene el CENTRO del personaje dentro del mapa. */
-function clampPosition(position) {
-  const halfWidth = CHARACTER.width / 2;
-  const halfHeight = CHARACTER.height / 2;
+/**
+ * Deja el ángulo en un múltiplo exacto del paso de rotación, dentro de [0, 360).
+ * Lo que llega del cliente no es de fiar, así que aquí se redondea.
+ */
+function normalizeRotation(value) {
+  const degrees = Number(value);
+  if (!Number.isFinite(degrees)) {
+    return 0;
+  }
+  const step = CHARACTER.rotationStepDegrees;
+  const snapped = Math.round(degrees / step) * step;
+  return ((snapped % 360) + 360) % 360;
+}
+
+/**
+ * Medio ancho y medio alto que ocupa el personaje medidos sobre los ejes del
+ * mapa. De pie ocupa 37 × 66, pero tumbado 45° la diagonal es más larga, así
+ * que el sitio que necesita depende del ángulo.
+ */
+function characterHalfExtent(rotationDegrees, padX = 0, padY = 0) {
+  const radians = (rotationDegrees * Math.PI) / 180;
+  const cos = Math.abs(Math.cos(radians));
+  const sin = Math.abs(Math.sin(radians));
+  const halfWidth = CHARACTER.width / 2 + padX;
+  const halfHeight = CHARACTER.height / 2 + padY;
   return {
-    x: Math.round(clampNumber(position.x, halfWidth, WORLD.width - halfWidth)),
-    y: Math.round(clampNumber(position.y, halfHeight, WORLD.height - halfHeight))
+    x: cos * halfWidth + sin * halfHeight,
+    y: sin * halfWidth + cos * halfHeight
+  };
+}
+
+/** Mantiene el CENTRO del personaje dentro del mapa. */
+function clampPosition(position, rotationDegrees = 0) {
+  const half = characterHalfExtent(rotationDegrees);
+  return {
+    x: Math.round(clampNumber(position.x, half.x, WORLD.width - half.x)),
+    y: Math.round(clampNumber(position.y, half.y, WORLD.height - half.y))
   };
 }
 
@@ -157,13 +187,25 @@ function spawnAwayFrom(existing, minGap) {
   return candidate;
 }
 
-/** ¿El punto (x, y) de mundo cae dentro de la caja del personaje? */
-function isInsideCharacter(x, y, position) {
-  const halfWidth = CHARACTER.width / 2 + HUNTER.hitPaddingX;
-  const halfHeight = CHARACTER.height / 2 + HUNTER.hitPaddingY;
+/**
+ * ¿El punto (x, y) de mundo cae dentro de la caja del personaje?
+ *
+ * Si el monigote está girado, su caja ya no está alineada con los ejes del
+ * mapa. En vez de agrandar la caja (que dejaría dar por acertado un disparo
+ * al aire), giramos el disparo al revés hasta el sistema del personaje y ahí
+ * la comprobación vuelve a ser un rectángulo recto.
+ */
+function isInsideCharacter(x, y, position, rotationDegrees = 0) {
+  const radians = (-rotationDegrees * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  const dx = x - position.x;
+  const dy = y - position.y;
+  const localX = dx * cos - dy * sin;
+  const localY = dx * sin + dy * cos;
   return (
-    Math.abs(x - position.x) <= halfWidth &&
-    Math.abs(y - position.y) <= halfHeight
+    Math.abs(localX) <= CHARACTER.width / 2 + HUNTER.hitPaddingX &&
+    Math.abs(localY) <= CHARACTER.height / 2 + HUNTER.hitPaddingY
   );
 }
 
@@ -175,6 +217,7 @@ function characterList(room) {
       id: player.id,
       x: player.position.x,
       y: player.position.y,
+      rotation: player.rotation ?? 0,
       found: player.found
     }));
 }
@@ -317,6 +360,8 @@ function beginPreparation(room) {
     player.ready = false;
     player.found = false;
     player.locked = false;
+    // Cada ronda se empieza de pie.
+    player.rotation = 0;
     // El cazador no tiene personaje; cada escondido nace en un punto aleatorio
     // separado del resto para que no aparezcan superpuestos.
     if (player.id === room.hunterId) {
@@ -415,7 +460,8 @@ function addPlayerToRoom(socket, room, name) {
     connected: true,
     found: false,
     position: null,
-    locked: false
+    locked: false,
+    rotation: 0
   };
 
   room.players.set(socket.id, player);
@@ -607,9 +653,11 @@ io.on("connection", (socket) => {
         throw new Error("Posición inválida.");
       }
 
-      // El servidor valida: la posición se recorta a los límites del mapa.
-      player.position = clampPosition({ x, y });
-      callback({ ok: true, position: player.position });
+      // El servidor valida: el ángulo se ajusta al paso permitido y la posición
+      // se recorta a los límites del mapa, que dependen de ese ángulo.
+      player.rotation = normalizeRotation(payload?.rotation ?? player.rotation);
+      player.position = clampPosition({ x, y }, player.rotation);
+      callback({ ok: true, position: player.position, rotation: player.rotation });
     } catch (error) {
       callback({ ok: false, message: error.message });
     }
@@ -635,11 +683,17 @@ io.on("connection", (socket) => {
         const x = Number(payload?.x);
         const y = Number(payload?.y);
         if (Number.isFinite(x) && Number.isFinite(y)) {
-          player.position = clampPosition({ x, y });
+          player.rotation = normalizeRotation(payload?.rotation ?? player.rotation);
+          player.position = clampPosition({ x, y }, player.rotation);
         }
       }
       player.locked = locked;
-      callback({ ok: true, locked, position: player.position });
+      callback({
+        ok: true,
+        locked,
+        position: player.position,
+        rotation: player.rotation ?? 0
+      });
     } catch (error) {
       callback({ ok: false, message: error.message });
     }
@@ -684,7 +738,7 @@ io.on("connection", (socket) => {
         if (player.id === room.hunterId || player.found || !player.position) {
           continue;
         }
-        if (isInsideCharacter(x, y, player.position)) {
+        if (isInsideCharacter(x, y, player.position, player.rotation ?? 0)) {
           hitPlayer = player;
           break;
         }

@@ -143,7 +143,8 @@ function ensureRenderer() {
       socket.emit("player:lock", {
         locked,
         x: position.x,
-        y: position.y
+        y: position.y,
+        rotation: position.rotation
       });
       if (roomState) {
         updateRoleTexts();
@@ -405,7 +406,7 @@ function updateRoleTexts() {
     } else {
       elements.roleTitle.textContent = "Escóndete y camúflate";
       elements.roleHelp.textContent =
-        "Muévete con las flechas o WASD y pulsa Enter para fijar tu posición.";
+        "Muévete con las flechas o WASD, gira con R y pulsa Enter para fijar tu posición.";
     }
   } else if (roomState.phase === "SEARCH") {
     if (isHunter) {

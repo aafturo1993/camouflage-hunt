@@ -41,13 +41,21 @@
       this.mapReady = false;
       this.mapId = null;
 
-      this.character = { sprite: null, width: 74, height: 132, speed: 340 };
+      this.character = {
+        sprite: null,
+        width: 37,
+        height: 66,
+        speed: 340,
+        rotationStepDegrees: 45
+      };
       this.sprite = null;
       this.spriteReady = false;
 
       this.mode = "IDLE";
       this.self = null;
       this.locked = false;
+      // Ángulo del monigote propio, en grados. Se gira con R.
+      this.rotation = 0;
       this.characters = [];
       this.effects = [];
       this.allowShoot = false;
@@ -104,7 +112,8 @@
         sprite: config.sprite,
         width: config.width,
         height: config.height,
-        speed: config.speed
+        speed: config.speed,
+        rotationStepDegrees: config.rotationStepDegrees ?? 45
       };
       if (config.sprite && this.sprite?.src?.endsWith(config.sprite) !== true) {
         this._loadSprite(config.sprite);
@@ -166,6 +175,7 @@
       this.mode = "PREP";
       this.allowShoot = false;
       this.locked = false;
+      this.rotation = 0;
       this.characters = [];
       this.effects = [];
       this._keys.clear();
@@ -292,23 +302,32 @@
         this._lastSentPos.x !== this.self.x ||
         this._lastSentPos.y !== this.self.y;
       if (moved && timestamp - this._lastSentAt >= MOVE_SEND_INTERVAL_MS) {
-        this._lastSentAt = timestamp;
-        this._lastSentPos = { x: this.self.x, y: this.self.y };
-        if (typeof this.onSelfMove === "function") {
-          this.onSelfMove({
-            x: Math.round(this.self.x),
-            y: Math.round(this.self.y)
-          });
-        }
+        this._sendSelf(timestamp);
       }
     }
 
-    _clampCharacter(position) {
+    /**
+     * Sitio que ocupa el monigote sobre los ejes del mapa. De pie es su ancho y
+     * su alto; girado 45° la diagonal ocupa más, así que los bordes del mapa se
+     * alcanzan antes. El servidor hace el mismo cálculo.
+     */
+    _halfExtent(rotationDegrees = this.rotation) {
+      const radians = (rotationDegrees * Math.PI) / 180;
+      const cos = Math.abs(Math.cos(radians));
+      const sin = Math.abs(Math.sin(radians));
       const halfWidth = this.character.width / 2;
       const halfHeight = this.character.height / 2;
       return {
-        x: clamp(position.x, halfWidth, this.world.width - halfWidth),
-        y: clamp(position.y, halfHeight, this.world.height - halfHeight)
+        x: cos * halfWidth + sin * halfHeight,
+        y: sin * halfWidth + cos * halfHeight
+      };
+    }
+
+    _clampCharacter(position) {
+      const half = this._halfExtent();
+      return {
+        x: clamp(position.x, half.x, this.world.width - half.x),
+        y: clamp(position.y, half.y, this.world.height - half.y)
       };
     }
 
@@ -345,11 +364,15 @@
       }
 
       if (this.mode === "PREP" && this.self) {
-        this._drawCharacter(this.self.x, this.self.y, { isSelf: true });
+        this._drawCharacter(this.self.x, this.self.y, {
+          isSelf: true,
+          rotation: this.rotation
+        });
       } else if (this.mode === "SEARCH") {
         for (const character of this.characters) {
           this._drawCharacter(character.x, character.y, {
             found: character.found,
+            rotation: character.rotation ?? 0,
             // F-12: marca cuál es el personaje del propio jugador.
             isSelf: character.id != null && character.id === this.viewerId
           });
@@ -368,9 +391,18 @@
       const left = screen.x - width / 2;
       const top = screen.y - height / 2;
 
+      const radians = ((Number(options.rotation) || 0) * Math.PI) / 180;
+
       ctx.save();
       if (options.found) {
         ctx.globalAlpha = 0.55;
+      }
+      if (radians !== 0) {
+        // Giramos el lienzo alrededor del centro del monigote y seguimos
+        // dibujando con las mismas coordenadas de siempre.
+        ctx.translate(screen.x, screen.y);
+        ctx.rotate(radians);
+        ctx.translate(-screen.x, -screen.y);
       }
 
       if (this.spriteReady && this.sprite) {
@@ -418,7 +450,7 @@
             screen.y,
             width / 2 + 8,
             height / 2 + 8,
-            0,
+            radians,
             0,
             Math.PI * 2
           );
@@ -505,6 +537,11 @@
         this._toggleLock();
         return;
       }
+      if (event.code === "KeyR") {
+        event.preventDefault();
+        this._rotate();
+        return;
+      }
       const direction = MOVE_KEYS[event.code];
       if (!direction) {
         return;
@@ -516,6 +553,39 @@
       this._keys.add(direction);
     }
 
+    /**
+     * Gira el monigote un paso (45° por defecto). A la octava pulsación ha dado
+     * la vuelta entera y vuelve a estar de pie, que es la forma de deshacerlo.
+     * Con la posición fijada no se gira, igual que no se anda.
+     */
+    _rotate() {
+      if (!this.self || this.locked) {
+        return;
+      }
+      const step = this.character.rotationStepDegrees || 45;
+      this.rotation = (this.rotation + step) % 360;
+      // Tumbado ocupa más a lo ancho: puede quedar medio cuerpo fuera del mapa.
+      this.self = this._clampCharacter(this.self);
+      // Girar no es un movimiento continuo, así que se manda en el momento.
+      this._sendSelf();
+    }
+
+    /** Manda al servidor dónde está y cómo está colocado el monigote propio. */
+    _sendSelf(timestamp) {
+      if (!this.self || typeof this.onSelfMove !== "function") {
+        return;
+      }
+      this._lastSentPos = { x: this.self.x, y: this.self.y };
+      if (Number.isFinite(timestamp)) {
+        this._lastSentAt = timestamp;
+      }
+      this.onSelfMove({
+        x: Math.round(this.self.x),
+        y: Math.round(this.self.y),
+        rotation: this.rotation
+      });
+    }
+
     _toggleLock() {
       if (!this.self) {
         return;
@@ -525,7 +595,8 @@
       if (typeof this.onLockToggle === "function") {
         this.onLockToggle(this.locked, {
           x: Math.round(this.self.x),
-          y: Math.round(this.self.y)
+          y: Math.round(this.self.y),
+          rotation: this.rotation
         });
       }
     }
@@ -540,18 +611,8 @@
       // F-10: al soltar, enviamos la posición exacta para que, si la preparación
       // termina justo después, el monigote se congele donde se dejó y no hasta
       // 30 px más allá por culpa del intervalo de envío.
-      if (
-        this.mode === "PREP" &&
-        !this.locked &&
-        this.self &&
-        typeof this.onSelfMove === "function"
-      ) {
-        this._lastSentPos = { x: this.self.x, y: this.self.y };
-        this._lastSentAt = this._lastTs;
-        this.onSelfMove({
-          x: Math.round(this.self.x),
-          y: Math.round(this.self.y)
-        });
+      if (this.mode === "PREP" && !this.locked && this.self) {
+        this._sendSelf(this._lastTs);
       }
     }
 
