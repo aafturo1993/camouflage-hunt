@@ -654,15 +654,28 @@ body.in-game #game-message:empty {
     top: 7.2rem;
   }
 
+  /*
+    Aquí no hay sitio para poner el mensaje centrado: por la derecha está el
+    contador de disparos. Va pegado a la izquierda, y el aviso de rol baja
+    para quedar debajo de él en vez de encima.
+  */
   body.in-game #game-message {
-    max-width: min(80%, 320px);
+    left: 0.6rem;
+    max-width: calc(100% - 6.5rem);
+    text-align: left;
+    transform: none;
+  }
+
+  body.in-game .role-hud {
+    top: 11rem;
+    max-width: 78%;
   }
 
   /* La barra de pintura ocupa todo el ancho, así que el aviso se queda con la
      franja de abajo entera, salvo el hueco de los botones de zoom. */
   .camera-hint {
     max-width: none;
-    right: 6rem;
+    right: 7rem;
   }
 
   /*
@@ -672,7 +685,8 @@ body.in-game #game-message:empty {
   .paint-toolbar {
     left: 0.6rem;
     right: 0.6rem;
-    bottom: 3.6rem;
+    /* Por encima del aviso de teclas, que aquí ocupa tres líneas. */
+    bottom: 5rem;
     max-width: none;
     transform: none;
   }
