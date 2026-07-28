@@ -49,12 +49,14 @@
 
       this.mode = "IDLE";
       this.self = null;
+      this.locked = false;
       this.characters = [];
       this.effects = [];
       this.allowShoot = false;
 
       this.onSelfMove = null;
       this.onShoot = null;
+      this.onLockToggle = null;
 
       this.running = false;
       this._rafId = null;
@@ -152,8 +154,10 @@
     setModePrepHider(startPosition) {
       this.mode = "PREP";
       this.allowShoot = false;
+      this.locked = false;
       this.characters = [];
       this.effects = [];
+      this._keys.clear();
       this.self = this._clampCharacter(
         startPosition ?? { x: this.world.width / 2, y: this.world.height / 2 }
       );
@@ -242,6 +246,9 @@
     }
 
     _updateMovement(dt, timestamp) {
+      if (this.locked) {
+        return; // posición fijada: no se mueve ni se envían actualizaciones
+      }
       let dx = 0;
       let dy = 0;
       if (this._keys.has("left")) dx -= 1;
@@ -373,13 +380,34 @@
       }
 
       if (options.isSelf) {
-        // Etiqueta "TÚ" para que el jugador identifique su personaje.
+        // Etiqueta para identificar el propio personaje y su estado (fijado o no).
+        const locked = this.locked;
+        const color = locked ? "#1f9d55" : "#1b6ef3";
+
+        if (locked) {
+          ctx.save();
+          ctx.strokeStyle = color;
+          ctx.lineWidth = Math.max(2, 3 * zoom);
+          ctx.beginPath();
+          ctx.ellipse(
+            screen.x,
+            screen.y,
+            width / 2 + 8,
+            height / 2 + 8,
+            0,
+            0,
+            Math.PI * 2
+          );
+          ctx.stroke();
+          ctx.restore();
+        }
+
         ctx.save();
-        ctx.fillStyle = "#1b6ef3";
+        ctx.fillStyle = color;
         ctx.font = "bold 13px system-ui, sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "bottom";
-        ctx.fillText("TÚ", screen.x, top - 4);
+        ctx.fillText(locked ? "FIJADO" : "TÚ", screen.x, top - 6);
         ctx.restore();
       }
     }
@@ -448,12 +476,34 @@
       if (this.mode !== "PREP") {
         return;
       }
+      if (event.code === "Enter") {
+        event.preventDefault();
+        this._toggleLock();
+        return;
+      }
       const direction = MOVE_KEYS[event.code];
       if (!direction) {
         return;
       }
+      if (this.locked) {
+        return; // fijado: se ignora el movimiento
+      }
       event.preventDefault();
       this._keys.add(direction);
+    }
+
+    _toggleLock() {
+      if (!this.self) {
+        return;
+      }
+      this.locked = !this.locked;
+      this._keys.clear();
+      if (typeof this.onLockToggle === "function") {
+        this.onLockToggle(this.locked, {
+          x: Math.round(this.self.x),
+          y: Math.round(this.self.y)
+        });
+      }
     }
 
     _handleKeyUp(event) {

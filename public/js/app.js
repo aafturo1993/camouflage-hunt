@@ -49,6 +49,7 @@ let renderer = null;
 let lastStageKey = null;
 let shotCooldownUntil = 0;
 let shotsRemaining = 0;
+let selfLocked = false;
 
 function setHidden(element, hidden) {
   element.classList.toggle("hidden", hidden);
@@ -130,6 +131,19 @@ function ensureRenderer() {
     // Disparo del cazador (clic en el mapa durante la búsqueda).
     renderer.onShoot = (point) => {
       handleShoot(point);
+    };
+
+    // Fijar / soltar la posición del escondido con Enter.
+    renderer.onLockToggle = (locked, position) => {
+      selfLocked = locked;
+      socket.emit("player:lock", {
+        locked,
+        x: position.x,
+        y: position.y
+      });
+      if (roomState) {
+        updateRoleTexts();
+      }
     };
   }
   if (clientConfig?.character) {
@@ -380,10 +394,14 @@ function updateRoleTexts() {
       elements.roleTitle.textContent = "Eres el cazador";
       elements.roleHelp.textContent =
         "Tu pantalla permanece tapada mientras los demás se esconden.";
+    } else if (selfLocked) {
+      elements.roleTitle.textContent = "Posición fijada";
+      elements.roleHelp.textContent =
+        "Has fijado tu posición. Pulsa Enter para soltarla y volver a moverte.";
     } else {
       elements.roleTitle.textContent = "Escóndete y camúflate";
       elements.roleHelp.textContent =
-        "Muévete con las flechas o WASD y elige dónde esconderte. La pintura llega en el siguiente módulo.";
+        "Muévete con las flechas o WASD y pulsa Enter para fijar tu posición.";
     }
   } else if (roomState.phase === "SEARCH") {
     if (isHunter) {
@@ -459,6 +477,7 @@ async function updateStage() {
     lastStageKey = stageKey;
 
     if (phase === "PREPARATION") {
+      selfLocked = false;
       engine.setModePrepHider(roomState.viewer.position);
     } else if (phase === "SEARCH") {
       engine.setModeSearch({ shoot: isHunter });

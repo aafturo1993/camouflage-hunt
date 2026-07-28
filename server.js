@@ -295,6 +295,7 @@ function beginPreparation(room) {
   for (const player of room.players.values()) {
     player.ready = false;
     player.found = false;
+    player.locked = false;
     // El cazador no tiene personaje; cada escondido arranca en un punto aleatorio.
     player.position = player.id === room.hunterId ? null : randomStartPosition();
   }
@@ -386,7 +387,8 @@ function addPlayerToRoom(socket, room, name) {
     ready: false,
     connected: true,
     found: false,
-    position: null
+    position: null,
+    locked: false
   };
 
   room.players.set(socket.id, player);
@@ -562,6 +564,9 @@ io.on("connection", (socket) => {
       if (room.hunterId === socket.id) {
         throw new Error("El cazador no controla ningún personaje.");
       }
+      if (player.locked) {
+        throw new Error("Has fijado tu posición; pulsa Enter para soltarla.");
+      }
 
       const x = Number(payload?.x);
       const y = Number(payload?.y);
@@ -572,6 +577,36 @@ io.on("connection", (socket) => {
       // El servidor valida: la posición se recorta a los límites del mapa.
       player.position = clampPosition({ x, y });
       callback({ ok: true, position: player.position });
+    } catch (error) {
+      callback({ ok: false, message: error.message });
+    }
+  });
+
+  socket.on("player:lock", (payload, callback = () => {}) => {
+    try {
+      const room = getPlayerRoom(socket);
+      const player = room?.players.get(socket.id);
+
+      if (!room || !player) {
+        throw new Error("No perteneces a ninguna sala.");
+      }
+      if (room.phase !== "PREPARATION") {
+        throw new Error("Solo puedes fijar tu posición durante la preparación.");
+      }
+      if (room.hunterId === socket.id) {
+        throw new Error("El cazador no controla ningún personaje.");
+      }
+
+      const locked = Boolean(payload?.locked);
+      if (locked) {
+        const x = Number(payload?.x);
+        const y = Number(payload?.y);
+        if (Number.isFinite(x) && Number.isFinite(y)) {
+          player.position = clampPosition({ x, y });
+        }
+      }
+      player.locked = locked;
+      callback({ ok: true, locked, position: player.position });
     } catch (error) {
       callback({ ok: false, message: error.message });
     }
