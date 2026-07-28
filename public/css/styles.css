@@ -464,6 +464,17 @@ input:focus {
   cursor: copy;
 }
 
+/*
+  F-24: con el telón puesto, los avisos del escenario se transparentaban a
+  través de la tela. El telón ya dice lo que hay que decir, y mientras no se
+  puede mirar no hay nada que ajustar, así que se quitan de en medio.
+*/
+.game-stage:has(#curtain:not(.hidden)) .role-hud,
+.game-stage:has(#curtain:not(.hidden)) .camera-hint,
+.game-stage:has(#curtain:not(.hidden)) .camera-controls {
+  display: none;
+}
+
 .curtain {
   position: absolute;
   z-index: 10;
