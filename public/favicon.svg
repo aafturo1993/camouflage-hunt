@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Camouflage Hunt">
+  <title>Camouflage Hunt</title>
+  <rect width="64" height="64" rx="14" fill="#17202a" />
+  <!-- Manchas de camuflaje sobre el fondo. -->
+  <path d="M8 18c6-6 13-3 18-7 4-3 12-4 16 1 4 5-2 9-7 10-7 2-12 6-18 5-6-1-11-5-9-9Z" fill="#3f5d3a" />
+  <path d="M10 44c5-5 12-2 17-5 6-3 14-1 17 3 3 5-3 9-9 10-8 1-14 2-20-1-4-2-7-4-5-7Z" fill="#6b8f4e" />
+  <!-- Silueta del monigote, la misma proporción que el personaje del juego. -->
+  <g fill="#eef2f5">
+    <circle cx="32" cy="21" r="6" />
+    <rect x="27" y="28" width="10" height="17" rx="4" />
+    <rect x="28" y="44" width="3.4" height="11" rx="1.7" />
+    <rect x="32.6" y="44" width="3.4" height="11" rx="1.7" />
+  </g>
+</svg>
