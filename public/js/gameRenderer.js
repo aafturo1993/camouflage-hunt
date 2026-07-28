@@ -95,6 +95,15 @@
       }
     }
 
+    /**
+     * Fija el estado de "fijado" desde fuera. Lo usa el cliente para revertir si
+     * el servidor rechaza el `player:lock` (F-21).
+     */
+    setLocked(value) {
+      this.locked = Boolean(value);
+      this._keys.clear();
+    }
+
     setWorld(world) {
       this.world = { width: world.width, height: world.height };
       this.camera.setWorld(this.world);

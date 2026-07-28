@@ -129,7 +129,14 @@ function ensureRenderer() {
 
     // Envío de la posición propia (escondido) al servidor, ya limitado en frecuencia.
     renderer.onSelfMove = (position) => {
-      socket.emit("player:move", position);
+      // F-21: recogemos el acuse. Si el servidor rechaza el movimiento lo
+      // registramos en consola; no lo sacamos a la interfaz porque el movimiento
+      // es continuo y saturaría el aviso.
+      socket.emit("player:move", position, (response) => {
+        if (response && !response.ok) {
+          console.warn("Movimiento rechazado por el servidor:", response.message);
+        }
+      });
     };
 
     // Disparo del cazador (clic en el mapa durante la búsqueda).
@@ -140,15 +147,28 @@ function ensureRenderer() {
     // Fijar / soltar la posición del escondido con Enter.
     renderer.onLockToggle = (locked, position) => {
       selfLocked = locked;
-      socket.emit("player:lock", {
-        locked,
-        x: position.x,
-        y: position.y,
-        rotation: position.rotation
-      });
       if (roomState) {
         updateRoleTexts();
       }
+      // F-21: recogemos el acuse. Si el servidor rechaza el fijado (por ejemplo
+      // porque la fase acaba de cambiar), revertimos el estado local para no dejar
+      // el cartel "FIJADO" y el cerco puestos sin que el servidor lo haya registrado.
+      socket.emit(
+        "player:lock",
+        { locked, x: position.x, y: position.y, rotation: position.rotation },
+        (response) => {
+          if (response && !response.ok) {
+            selfLocked = !locked;
+            if (renderer) {
+              renderer.setLocked(!locked);
+            }
+            if (roomState) {
+              updateRoleTexts();
+            }
+            setMessage(elements.gameMessage, response.message, true);
+          }
+        }
+      );
     };
   }
   if (clientConfig?.character) {
