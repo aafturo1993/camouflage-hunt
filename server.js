@@ -10,6 +10,7 @@ const {
   CAMERA,
   CHARACTER,
   HUNTER,
+  PAINT,
   TIMERS,
   LIMITS,
   DEFAULT_MAP_ID
@@ -50,6 +51,7 @@ app.get("/api/config", (_request, response) => {
     camera: CAMERA,
     character: CHARACTER,
     hunter: { shotCooldownMs: HUNTER.shotCooldownMs, extraShots: HUNTER.extraShots },
+    paint: PAINT,
     limits: LIMITS,
     maps
   });
@@ -218,7 +220,9 @@ function characterList(room) {
       x: player.position.x,
       y: player.position.y,
       rotation: player.rotation ?? 0,
-      found: player.found
+      found: player.found,
+      // La pintura del jugador (snapshot). Solo viaja en búsqueda/resultados.
+      paint: player.paint ?? null
     }));
 }
 
@@ -362,6 +366,8 @@ function beginPreparation(room) {
     player.locked = false;
     // Cada ronda se empieza de pie.
     player.rotation = 0;
+    // Cada ronda se empieza sin pintura.
+    player.paint = null;
     // El cazador no tiene personaje; cada escondido nace en un punto aleatorio
     // separado del resto para que no aparezcan superpuestos.
     if (player.id === room.hunterId) {
@@ -461,7 +467,8 @@ function addPlayerToRoom(socket, room, name) {
     found: false,
     position: null,
     locked: false,
-    rotation: 0
+    rotation: 0,
+    paint: null
   };
 
   room.players.set(socket.id, player);
@@ -694,6 +701,47 @@ io.on("connection", (socket) => {
         position: player.position,
         rotation: player.rotation ?? 0
       });
+    } catch (error) {
+      callback({ ok: false, message: error.message });
+    }
+  });
+
+  socket.on("paint:snapshot", (payload, callback = () => {}) => {
+    try {
+      const room = getPlayerRoom(socket);
+      const player = room?.players.get(socket.id);
+
+      if (!room || !player) {
+        throw new Error("No perteneces a ninguna sala.");
+      }
+      if (room.phase !== "PREPARATION") {
+        throw new Error("Solo puedes pintar durante la preparación.");
+      }
+      if (room.hunterId === socket.id) {
+        throw new Error("El cazador no controla ningún personaje.");
+      }
+
+      const image = payload?.image;
+      // Lienzo vacío (o borrado): se quita la pintura.
+      if (image == null || image === "") {
+        player.paint = null;
+        callback({ ok: true });
+        return;
+      }
+      if (
+        typeof image !== "string" ||
+        !image.startsWith("data:image/png;base64,")
+      ) {
+        throw new Error("Formato de imagen no válido.");
+      }
+      if (image.length > PAINT.snapshotMaxBytes) {
+        throw new Error("La pintura ocupa demasiado.");
+      }
+
+      // No se reemite: la pintura solo llega a los demás en la búsqueda, dentro
+      // de la lista de personajes. Así el cazador no la ve durante la preparación.
+      player.paint = image;
+      callback({ ok: true });
     } catch (error) {
       callback({ ok: false, message: error.message });
     }

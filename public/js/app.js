@@ -31,6 +31,10 @@ const elements = {
   cameraControls: document.querySelector("#camera-controls"),
   ammoHud: document.querySelector("#ammo-hud"),
   ammoCount: document.querySelector("#ammo-count"),
+  paintToolbar: document.querySelector("#paint-toolbar"),
+  paintEyedropper: document.querySelector("#paint-eyedropper"),
+  paintColor: document.querySelector("#paint-color"),
+  paintClear: document.querySelector("#paint-clear"),
   zoomIn: document.querySelector("#zoom-in"),
   zoomOut: document.querySelector("#zoom-out"),
   finishRound: document.querySelector("#finish-round"),
@@ -54,6 +58,12 @@ let selfLocked = false;
 let latestCharacters = [];
 // Desfase entre el reloj del servidor y el del navegador, para la cuenta atrás (F-05).
 let serverClockOffset = 0;
+
+// Pintura (módulo 4).
+let paintEngine = null;
+let paintScriptPromise = null;
+let paintToolbarWired = false;
+let eyedropperActive = false;
 
 function setHidden(element, hidden) {
   element.classList.toggle("hidden", hidden);
@@ -144,9 +154,43 @@ function ensureRenderer() {
       handleShoot(point);
     };
 
+    // Pintura: el ratón en preparación pinta el monigote (o clona color con el
+    // cuentagotas si está activo).
+    renderer.onPaint = (type, world, screen) => {
+      if (!paintEngine || !renderer.self) {
+        return;
+      }
+      if (eyedropperActive) {
+        if (type === "down") {
+          const dpr = window.devicePixelRatio || 1;
+          const hex = paintEngine.sampleColorFromCanvas(
+            renderer.canvas,
+            screen.x,
+            screen.y,
+            dpr
+          );
+          if (hex) {
+            applyPaintColor(hex);
+          }
+          setEyedropper(false);
+        }
+        return; // mientras el cuentagotas está activo no se pinta
+      }
+      if (type === "down") {
+        paintEngine.beginStroke(world, renderer.self.x, renderer.self.y, renderer.rotation);
+      } else if (type === "move") {
+        paintEngine.continueStroke(world, renderer.self.x, renderer.self.y, renderer.rotation);
+      } else if (type === "up") {
+        paintEngine.endStroke();
+      }
+    };
+
     // Fijar / soltar la posición del escondido con Enter.
     renderer.onLockToggle = (locked, position) => {
       selfLocked = locked;
+      if (paintEngine) {
+        paintEngine.flush(); // asegura que el servidor tiene la pintura final
+      }
       if (roomState) {
         updateRoleTexts();
       }
@@ -202,6 +246,162 @@ async function handleShoot(point) {
 
 function updateAmmoHud() {
   elements.ammoCount.textContent = String(shotsRemaining);
+}
+
+// --- Pintura (módulo 4) -----------------------------------------------------
+
+/**
+ * Carga painting.js una sola vez. Se inyecta desde aquí para no depender de que
+ * el <script> esté en index.html (ese archivo es de Diseño).
+ */
+function loadPaintScript() {
+  if (!paintScriptPromise) {
+    paintScriptPromise = new Promise((resolve, reject) => {
+      if (window.PaintEngine) {
+        resolve();
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = "/js/painting.js";
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error("No se pudo cargar painting.js"));
+      document.head.appendChild(script);
+    });
+  }
+  return paintScriptPromise;
+}
+
+/** Crea (si hace falta) y configura el motor de pintura. */
+async function setupPaint() {
+  try {
+    await loadPaintScript();
+  } catch (error) {
+    console.error(error);
+    return null;
+  }
+  if (!window.PaintEngine) {
+    return null;
+  }
+  if (!paintEngine) {
+    paintEngine = new window.PaintEngine();
+    paintEngine.onSnapshot = (image) => {
+      socket.emit("paint:snapshot", { image });
+    };
+  }
+  if (clientConfig?.paint) {
+    paintEngine.configure(clientConfig.paint, clientConfig.character);
+  }
+  if (renderer) {
+    renderer.selfTextureCanvas = paintEngine.getCanvas();
+  }
+  if (!paintToolbarWired) {
+    wirePaintToolbar();
+    paintToolbarWired = true;
+  }
+  return paintEngine;
+}
+
+function wirePaintToolbar() {
+  const brushSizes = clientConfig?.paint?.brushSizes ?? {};
+  const brushButtons = document.querySelectorAll(".paint-brush");
+  brushButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const radius = brushSizes[button.dataset.brush];
+      if (paintEngine && radius) {
+        paintEngine.setBrushWorldRadius(radius);
+      }
+      brushButtons.forEach((other) =>
+        other.classList.toggle("is-active", other === button)
+      );
+    });
+  });
+
+  const defaultBrush = clientConfig?.paint?.defaultBrush ?? "s";
+  const defaultButton = [...brushButtons].find(
+    (button) => button.dataset.brush === defaultBrush
+  );
+  if (defaultButton) {
+    defaultButton.click();
+  }
+
+  if (elements.paintEyedropper) {
+    elements.paintEyedropper.addEventListener("click", () => {
+      setEyedropper(!eyedropperActive);
+    });
+  }
+  if (elements.paintClear) {
+    elements.paintClear.addEventListener("click", () => {
+      if (paintEngine) {
+        paintEngine.clear();
+      }
+    });
+  }
+
+  buildPaintPalette();
+  applyPaintColor(clientConfig?.paint?.defaultColor ?? "#6b7257");
+}
+
+/**
+ * Rellena la rueda de colores. Si Diseño no ha puesto un contenedor `#paint-palette`,
+ * inyectamos los colores en la barra con estilos en línea (funcional ya; Diseño lo
+ * reestiliza cuando quiera).
+ */
+function buildPaintPalette() {
+  const colors = clientConfig?.paint?.palette ?? [];
+  let container = document.querySelector("#paint-palette");
+  if (!container) {
+    container = document.createElement("div");
+    container.id = "paint-palette";
+    container.className = "paint-palette";
+    container.style.display = "flex";
+    container.style.flexWrap = "wrap";
+    container.style.gap = "0.2rem";
+    const anchor = elements.paintColor ?? elements.paintClear;
+    if (anchor?.parentNode) {
+      anchor.parentNode.insertBefore(container, anchor);
+    } else if (elements.paintToolbar) {
+      elements.paintToolbar.appendChild(container);
+    }
+  }
+  container.replaceChildren();
+  for (const color of colors) {
+    const swatch = document.createElement("button");
+    swatch.type = "button";
+    swatch.className = "paint-swatch";
+    swatch.dataset.color = color;
+    swatch.title = color;
+    swatch.style.background = color;
+    swatch.style.width = "20px";
+    swatch.style.height = "20px";
+    swatch.style.minHeight = "20px";
+    swatch.style.padding = "0";
+    swatch.style.borderRadius = "4px";
+    swatch.style.border = "1px solid rgba(255, 255, 255, 0.45)";
+    swatch.addEventListener("click", () => applyPaintColor(color));
+    container.appendChild(swatch);
+  }
+}
+
+function applyPaintColor(hex) {
+  if (paintEngine) {
+    paintEngine.setColor(hex);
+  }
+  if (elements.paintColor) {
+    elements.paintColor.style.background = hex;
+  }
+  document.querySelectorAll(".paint-swatch").forEach((swatch) => {
+    swatch.classList.toggle("is-active", swatch.dataset.color === hex);
+  });
+}
+
+function setEyedropper(active) {
+  eyedropperActive = active;
+  if (elements.paintEyedropper) {
+    elements.paintEyedropper.classList.toggle("is-active", active);
+  }
+  if (renderer) {
+    renderer.canvas.style.cursor = active ? "crosshair" : "";
+  }
 }
 
 function emitWithAck(eventName, payload) {
@@ -502,7 +702,8 @@ async function updateStage() {
   // Inicialización pesada del modo solo cuando cambia fase / rol / ronda,
   // para no reiniciar la posición del personaje en cada actualización.
   const stageKey = `${phase}:${roomState.viewer.role}:${roomState.round}`;
-  if (stageKey !== lastStageKey) {
+  const stageChanged = stageKey !== lastStageKey;
+  if (stageChanged) {
     lastStageKey = stageKey;
     // F-09: el mensaje de juego solo se limpia al cambiar de fase, no en cada
     // actualización, para que los avisos de disparo no desaparezcan solos.
@@ -526,6 +727,23 @@ async function updateStage() {
   }
 
   engine.start();
+
+  // Pintura: la barra solo se muestra al escondido en preparación.
+  const isHiderPrep = phase === "PREPARATION" && !isHunter;
+  if (elements.paintToolbar) {
+    setHidden(elements.paintToolbar, !isHiderPrep);
+  }
+  if (!isHiderPrep) {
+    setEyedropper(false);
+  } else {
+    setupPaint().then((paint) => {
+      if (paint && stageChanged) {
+        // Ronda nueva: lienzo limpio y se le quita la pintura al servidor.
+        paint.reset();
+        paint.flush();
+      }
+    });
+  }
 }
 
 function renderGame() {

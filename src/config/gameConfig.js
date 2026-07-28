@@ -54,6 +54,28 @@ const HUNTER = {
   hitPaddingY: 8
 };
 
+// Pintura del personaje (módulo 4).
+// - La pintura vive en una textura propia del tamaño del sprite; se recorta a la
+//   silueta del monigote y se dibuja encima.
+// - Los pinceles se miden en RADIO de píxeles de MUNDO. El monigote mide 37x66 de
+//   mundo, así que "xs" es muy fino (para detalle a 800 %) y "l" rellena rápido.
+// - La sincronización es por snapshot: una imagen PNG por jugador, no trazos.
+const PAINT = {
+  textureWidth: 200,
+  textureHeight: 360,
+  brushSizes: { xs: 0.5, s: 1.2, m: 2.5, l: 5 },
+  defaultBrush: "s",
+  defaultColor: "#6b7257",
+  // Opciones de color de la rueda. El cuentagotas añade cualquier color del mapa.
+  palette: [
+    "#2b2f33", "#3a3f37", "#5c4a3a", "#6b7257", "#8a5a3b",
+    "#9aa06f", "#b5651d", "#c7b489", "#4a5d68", "#7a8a99",
+    "#a83e3e", "#8fae86", "#c0c6cc", "#d9c7a3", "#e8e2d0"
+  ],
+  snapshotMaxBytes: 150000,
+  snapshotMinIntervalMs: 400
+};
+
 const TIMERS = {
   preparationSeconds: 120,
   searchSeconds: 180
@@ -73,6 +95,7 @@ module.exports = {
   CAMERA,
   CHARACTER,
   HUNTER,
+  PAINT,
   TIMERS,
   LIMITS,
   DEFAULT_MAP_ID

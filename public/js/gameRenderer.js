@@ -65,6 +65,10 @@
       this.onSelfMove = null;
       this.onShoot = null;
       this.onLockToggle = null;
+      // Pintura (módulo 4). El cliente enruta aquí el ratón en preparación.
+      this.onPaint = null;
+      this.selfTextureCanvas = null;
+      this._paintCache = new Map(); // id -> { src, image } para dibujar en búsqueda
 
       this.running = false;
       this._rafId = null;
@@ -205,7 +209,22 @@
     }
 
     setCharacters(list) {
-      this.characters = Array.isArray(list) ? list : [];
+      const characters = Array.isArray(list) ? list : [];
+      // Carga (y cachea) la pintura de cada personaje para dibujarla en búsqueda.
+      for (const character of characters) {
+        if (!character.paint) {
+          continue;
+        }
+        let entry = this._paintCache.get(character.id);
+        if (!entry || entry.src !== character.paint) {
+          const image = new Image();
+          image.src = character.paint;
+          entry = { src: character.paint, image };
+          this._paintCache.set(character.id, entry);
+        }
+        character._paintImage = entry.image;
+      }
+      this.characters = characters;
     }
 
     spawnShot(x, y, hit) {
@@ -375,7 +394,8 @@
       if (this.mode === "PREP" && this.self) {
         this._drawCharacter(this.self.x, this.self.y, {
           isSelf: true,
-          rotation: this.rotation
+          rotation: this.rotation,
+          texture: this.selfTextureCanvas
         });
       } else if (this.mode === "SEARCH") {
         for (const character of this.characters) {
@@ -383,7 +403,8 @@
             found: character.found,
             rotation: character.rotation ?? 0,
             // F-12: marca cuál es el personaje del propio jugador.
-            isSelf: character.id != null && character.id === this.viewerId
+            isSelf: character.id != null && character.id === this.viewerId,
+            texture: character._paintImage
           });
         }
       }
@@ -425,6 +446,17 @@
         ctx.ellipse(screen.x, screen.y, width / 2, height / 2, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
+      }
+
+      // Pintura del jugador, encima del sprite y recortada ya a la silueta.
+      const texture = options.texture;
+      if (texture) {
+        const ready =
+          texture instanceof HTMLCanvasElement ||
+          (texture.complete && texture.naturalWidth > 0);
+        if (ready) {
+          ctx.drawImage(texture, left, top, width, height);
+        }
       }
       ctx.restore();
 
@@ -653,6 +685,12 @@
         } catch {
           /* no crítico */
         }
+
+        // En preparación el ratón pinta el monigote.
+        if (this.mode === "PREP" && typeof this.onPaint === "function") {
+          const world = this.camera.screenToWorld(point.x, point.y);
+          this.onPaint("down", world, point);
+        }
       });
 
       canvas.addEventListener("pointermove", (event) => {
@@ -672,10 +710,13 @@
           this._pointer.moved = true;
         }
 
-        // El arrastre solo mueve la cámara fuera del modo preparación.
+        // Fuera de preparación el arrastre mueve la cámara; en preparación pinta.
         if (this.mode !== "PREP") {
           canvas.classList.add("grabbing");
           this.camera.panByScreen(dx, dy);
+        } else if (typeof this.onPaint === "function") {
+          const world = this.camera.screenToWorld(point.x, point.y);
+          this.onPaint("move", world, point);
         }
       });
 
@@ -698,6 +739,12 @@
           if (typeof this.onShoot === "function") {
             this.onShoot({ x: Math.round(world.x), y: Math.round(world.y) });
           }
+        }
+
+        // Fin de trazo de pintura en preparación.
+        if (this.mode === "PREP" && typeof this.onPaint === "function") {
+          const world = this.camera.screenToWorld(point.x, point.y);
+          this.onPaint("up", world, point);
         }
       };
 
