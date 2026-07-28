@@ -77,11 +77,6 @@ input:focus {
   padding: 3rem 0;
 }
 
-/* Durante la partida el escenario necesita más ancho que el lobby. */
-body.in-game .app-shell {
-  width: min(1440px, calc(100% - 2rem));
-}
-
 .brand {
   margin-bottom: 1.5rem;
 }
@@ -488,6 +483,112 @@ body.in-game .app-shell {
   font-size: 3rem;
 }
 
+/*
+  C-02 · Partida a pantalla completa.
+
+  En el menú no cambia nada. En cuanto empieza la partida (app.js pone la clase
+  in-game en el body) el escenario ocupa la ventana entera y todo lo demás pasa
+  a flotar por encima del mapa.
+
+  Es solo maquetación: el canvas mide su contenedor en cada resize(), así que el
+  motor se adapta solo al nuevo tamaño.
+*/
+body.in-game {
+  /* Si la página pudiera desplazarse, el arrastre del cazador movería la
+     página en vez del mapa. */
+  overflow: hidden;
+}
+
+body.in-game .app-shell {
+  width: 100%;
+  height: 100dvh;
+  padding: 0;
+}
+
+/* En partida manda el mapa: la cabecera del juego estorba. */
+body.in-game .brand {
+  display: none;
+}
+
+body.in-game .game-card {
+  height: 100dvh;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+body.in-game .game-stage {
+  height: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+/*
+  Franja superior sobre el mapa: ronda, fase y temporizador. Va por encima del
+  telón a propósito, para que el cazador tapado siga viendo cuánto le queda.
+  No captura el puntero, así se puede arrastrar el mapa por debajo.
+*/
+body.in-game .game-topbar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 12;
+  padding: 0.5rem 0.9rem;
+  background: linear-gradient(rgba(15, 20, 25, 0.88), rgba(15, 20, 25, 0));
+  color: #fff;
+  pointer-events: none;
+}
+
+body.in-game .game-topbar .eyebrow,
+body.in-game .game-topbar h2 {
+  color: #e8eef1;
+  margin-bottom: 0;
+}
+
+/* Botones de anfitrión: en la misma franja, a la derecha, y sí pulsables. */
+body.in-game .game-card > .actions {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.9rem;
+  z-index: 13;
+  width: auto;
+  margin: 0;
+}
+
+body.in-game .game-card > .actions > * {
+  flex: 0 0 auto;
+}
+
+/* Los avisos del escenario bajan para no quedar debajo de la franja. */
+body.in-game .role-hud,
+body.in-game .ammo-hud {
+  top: 3.7rem;
+}
+
+body.in-game #game-message {
+  position: absolute;
+  top: 3.7rem;
+  left: 50%;
+  z-index: 11;
+  max-width: min(50%, 420px);
+  margin: 0;
+  padding: 0.35rem 0.7rem;
+  border-radius: 0.5rem;
+  background: rgba(15, 20, 25, 0.82);
+  color: #fff;
+  text-align: center;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+/* Sin texto no debe verse la cajita vacía. */
+body.in-game #game-message:empty {
+  display: none;
+}
+
 .hidden {
   display: none !important;
 }
@@ -500,6 +601,24 @@ body.in-game .app-shell {
   .room-heading,
   .game-topbar {
     align-items: flex-start;
+  }
+
+  /* En partida, la franja superior necesita dos alturas: el título y el
+     temporizador arriba, y los botones de anfitrión debajo. */
+  body.in-game .game-topbar h2 {
+    font-size: 1.3rem;
+  }
+
+  body.in-game .timer {
+    font-size: 1.5rem;
+  }
+
+  /* Los botones siguen arriba a la derecha: abajo está ocupado por el aviso,
+     el zoom y la barra de pintura. Solo se hacen más pequeños. */
+  body.in-game .game-card > .actions button {
+    min-height: 36px;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.85rem;
   }
 
   /*
