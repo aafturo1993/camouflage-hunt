@@ -121,8 +121,48 @@ function getZoomLimits(role) {
 function ensureRenderer() {
   if (!renderer) {
     renderer = new window.GameRenderer(elements.gameCanvas);
+
+    // Envío de la posición propia (escondido) al servidor, ya limitado en frecuencia.
+    renderer.onSelfMove = (position) => {
+      socket.emit("player:move", position);
+    };
+
+    // Disparo del cazador (clic en el mapa durante la búsqueda).
+    renderer.onShoot = (point) => {
+      handleShoot(point);
+    };
+  }
+  if (clientConfig?.character) {
+    renderer.setCharacterConfig(clientConfig.character);
   }
   return renderer;
+}
+
+async function handleShoot(point) {
+  const now = Date.now();
+  if (shotsRemaining <= 0) {
+    setMessage(elements.gameMessage, "Sin disparos.", true);
+    return;
+  }
+  if (now < shotCooldownUntil) {
+    return; // recargando (bloqueo local para no saturar)
+  }
+
+  const cooldownMs = clientConfig?.hunter?.shotCooldownMs ?? 800;
+  shotCooldownUntil = now + cooldownMs;
+
+  const response = await emitWithAck("hunter:shoot", point);
+  if (!response.ok) {
+    setMessage(elements.gameMessage, response.message, true);
+    return;
+  }
+
+  shotsRemaining = response.remaining;
+  updateAmmoHud();
+}
+
+function updateAmmoHud() {
+  elements.ammoCount.textContent = String(shotsRemaining);
 }
 
 function emitWithAck(eventName, payload) {
@@ -343,13 +383,13 @@ function updateRoleTexts() {
     } else {
       elements.roleTitle.textContent = "Escóndete y camúflate";
       elements.roleHelp.textContent =
-        "Explora el mapa con arrastre y zoom. El movimiento y la pintura llegan en los próximos módulos.";
+        "Muévete con las flechas o WASD y elige dónde esconderte. La pintura llega en el siguiente módulo.";
     }
   } else if (roomState.phase === "SEARCH") {
     if (isHunter) {
       elements.roleTitle.textContent = "¡Encuentra a todos!";
       elements.roleHelp.textContent =
-        "El telón se ha abierto. Recorre el mapa con arrastre y zoom limitado.";
+        "Recorre el mapa arrastrando y haz clic sobre un personaje para disparar.";
     } else {
       elements.roleTitle.textContent = "Permanece inmóvil";
       elements.roleHelp.textContent =
@@ -362,19 +402,23 @@ function updateRoleTexts() {
   }
 }
 
-/** Configura el escenario (canvas + telón) según fase y rol. */
+/** Configura el escenario (canvas, telón, personaje, disparo) según fase y rol. */
 async function updateStage() {
   const showMap = canViewMap();
+  const isHunter = roomState.viewer.role === "HUNTER";
+  const phase = roomState.phase;
 
   setHidden(elements.curtain, showMap);
   setHidden(elements.cameraControls, !showMap);
   setHidden(elements.cameraHint, !showMap);
+  setHidden(elements.ammoHud, !(isHunter && phase === "SEARCH"));
 
   if (!showMap) {
     // El cazador durante la preparación no carga ni dibuja el mapa.
     if (renderer) {
       renderer.stop();
     }
+    lastStageKey = null;
     return;
   }
 
@@ -406,6 +450,23 @@ async function updateStage() {
 
   engine.loadMap(map);
   engine.setZoomLimits(limits.minZoom, limits.maxZoom);
+  elements.gameCanvas.classList.toggle("aiming", isHunter && phase === "SEARCH");
+
+  // Inicialización pesada del modo solo cuando cambia fase / rol / ronda,
+  // para no reiniciar la posición del personaje en cada actualización.
+  const stageKey = `${phase}:${roomState.viewer.role}:${roomState.round}`;
+  if (stageKey !== lastStageKey) {
+    lastStageKey = stageKey;
+
+    if (phase === "PREPARATION") {
+      engine.setModePrepHider(roomState.viewer.position);
+    } else if (phase === "SEARCH") {
+      engine.setModeSearch({ shoot: isHunter });
+    } else {
+      engine.setModeSearch({ shoot: false });
+    }
+  }
+
   engine.start();
 }
 
@@ -419,6 +480,11 @@ function renderGame() {
   elements.phaseTitle.textContent = getPhaseLabel(roomState.phase);
 
   updateRoleTexts();
+
+  if (roomState.viewer.shots) {
+    shotsRemaining = roomState.viewer.shots.remaining;
+    updateAmmoHud();
+  }
 
   setHidden(elements.finishRound, !(isHost && roomState.phase === "SEARCH"));
   setHidden(elements.returnLobby, !(isHost && roomState.phase === "RESULTS"));
@@ -464,6 +530,7 @@ function render() {
     if (renderer) {
       renderer.stop();
     }
+    lastStageKey = null;
     renderLobby();
   } else {
     renderGame();
@@ -510,6 +577,18 @@ socket.on("disconnect", () => {
 socket.on("room:state", (nextState) => {
   roomState = nextState;
   render();
+});
+
+socket.on("game:characters", (payload) => {
+  if (renderer) {
+    renderer.setCharacters(payload?.characters ?? []);
+  }
+});
+
+socket.on("game:shot", (payload) => {
+  if (renderer && payload) {
+    renderer.spawnShot(payload.x, payload.y, payload.hit);
+  }
 });
 
 // Precargamos la configuración para que el mapa aparezca sin esperas al entrar en juego.
