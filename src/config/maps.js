@@ -22,9 +22,4 @@ const maps = [
   }
 ];
 
-function getMapById(mapId) {
-  return maps.find((map) => map.id === mapId) ?? null;
-}
-
 module.exports = maps;
-module.exports.getMapById = getMapById;

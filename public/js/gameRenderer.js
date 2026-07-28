@@ -14,12 +14,10 @@
  * transforma para dibujar. El personaje se ancla por su CENTRO.
  */
 (function () {
-  const WHEEL_ZOOM_IN = 1.1;
-  const WHEEL_ZOOM_OUT = 1 / 1.1;
-  const BUTTON_ZOOM_STEP = 1.15;
   const CLICK_THRESHOLD_PX = 6;
   const MOVE_SEND_INTERVAL_MS = 90;
   const MAX_DELTA_SECONDS = 0.05;
+  const DEFAULT_ZOOM_STEP = 0.15;
 
   const MOVE_KEYS = {
     ArrowUp: "up",
@@ -53,6 +51,8 @@
       this.characters = [];
       this.effects = [];
       this.allowShoot = false;
+      this.viewerId = null;
+      this.zoomStep = DEFAULT_ZOOM_STEP;
 
       this.onSelfMove = null;
       this.onShoot = null;
@@ -67,13 +67,24 @@
       this._lastSentPos = null;
       this._lastSentAt = 0;
 
-      this._pointer = null; // { startX, startY, lastX, lastY, moved }
+      this._pointer = null; // { id, startX, startY, lastX, lastY, moved }
 
       this._onResize = () => this.resize();
       this._onKeyDown = (event) => this._handleKeyDown(event);
       this._onKeyUp = (event) => this._handleKeyUp(event);
+      this._onBlur = () => this._keys.clear();
 
       this._bindPointerInput();
+    }
+
+    setViewerId(id) {
+      this.viewerId = id ?? null;
+    }
+
+    setZoomStep(step) {
+      if (Number.isFinite(step) && step > 0) {
+        this.zoomStep = step;
+      }
     }
 
     setWorld(world) {
@@ -168,6 +179,7 @@
     setModeSearch(options = {}) {
       this.mode = "SEARCH";
       this.self = null;
+      this.locked = false;
       this.allowShoot = Boolean(options.shoot);
       this.effects = [];
       this._keys.clear();
@@ -192,6 +204,9 @@
       window.addEventListener("resize", this._onResize);
       window.addEventListener("keydown", this._onKeyDown);
       window.addEventListener("keyup", this._onKeyUp);
+      // F-03: si se pierde el foco (Alt+Tab) soltamos las teclas para que el
+      // personaje no siga andando solo.
+      window.addEventListener("blur", this._onBlur);
       this.resize();
 
       const loop = (timestamp) => {
@@ -214,6 +229,7 @@
       window.removeEventListener("resize", this._onResize);
       window.removeEventListener("keydown", this._onKeyDown);
       window.removeEventListener("keyup", this._onKeyUp);
+      window.removeEventListener("blur", this._onBlur);
       this._pointer = null;
       this._keys.clear();
       this._lastTs = 0;
@@ -226,9 +242,15 @@
 
       const cssWidth = Math.max(1, Math.round(rect.width));
       const cssHeight = Math.max(1, Math.round(rect.height));
+      const pixelWidth = Math.round(cssWidth * dpr);
+      const pixelHeight = Math.round(cssHeight * dpr);
 
-      this.canvas.width = Math.round(cssWidth * dpr);
-      this.canvas.height = Math.round(cssHeight * dpr);
+      // F-18: solo reasignamos el tamaño del canvas si cambió de verdad;
+      // reasignarlo reinicia el contexto de dibujo.
+      if (this.canvas.width !== pixelWidth || this.canvas.height !== pixelHeight) {
+        this.canvas.width = pixelWidth;
+        this.canvas.height = pixelHeight;
+      }
       this.camera.setViewport(cssWidth, cssHeight);
     }
 
@@ -327,7 +349,9 @@
       } else if (this.mode === "SEARCH") {
         for (const character of this.characters) {
           this._drawCharacter(character.x, character.y, {
-            found: character.found
+            found: character.found,
+            // F-12: marca cuál es el personaje del propio jugador.
+            isSelf: character.id != null && character.id === this.viewerId
           });
         }
       }
@@ -380,8 +404,8 @@
       }
 
       if (options.isSelf) {
-        // Etiqueta para identificar el propio personaje y su estado (fijado o no).
-        const locked = this.locked;
+        // Etiqueta para identificar el propio personaje. "FIJADO" solo en preparación.
+        const locked = this.mode === "PREP" && this.locked;
         const color = locked ? "#1f9d55" : "#1b6ef3";
 
         if (locked) {
@@ -458,7 +482,7 @@
       this.camera.zoomAt(
         this.camera.viewport.width / 2,
         this.camera.viewport.height / 2,
-        BUTTON_ZOOM_STEP
+        1 + this.zoomStep
       );
     }
 
@@ -466,7 +490,7 @@
       this.camera.zoomAt(
         this.camera.viewport.width / 2,
         this.camera.viewport.height / 2,
-        1 / BUTTON_ZOOM_STEP
+        1 / (1 + this.zoomStep)
       );
     }
 
@@ -512,6 +536,23 @@
         return;
       }
       this._keys.delete(direction);
+
+      // F-10: al soltar, enviamos la posición exacta para que, si la preparación
+      // termina justo después, el monigote se congele donde se dejó y no hasta
+      // 30 px más allá por culpa del intervalo de envío.
+      if (
+        this.mode === "PREP" &&
+        !this.locked &&
+        this.self &&
+        typeof this.onSelfMove === "function"
+      ) {
+        this._lastSentPos = { x: this.self.x, y: this.self.y };
+        this._lastSentAt = this._lastTs;
+        this.onSelfMove({
+          x: Math.round(this.self.x),
+          y: Math.round(this.self.y)
+        });
+      }
     }
 
     // --- Entrada de puntero (arrastre y disparo) -----------------------------
@@ -530,6 +571,7 @@
         }
         const point = this._localPointer(event);
         this._pointer = {
+          id: event.pointerId,
           startX: point.x,
           startY: point.y,
           lastX: point.x,
@@ -544,7 +586,8 @@
       });
 
       canvas.addEventListener("pointermove", (event) => {
-        if (!this._pointer) {
+        // F-15: solo seguimos el dedo/puntero que inició el arrastre.
+        if (!this._pointer || event.pointerId !== this._pointer.id) {
           return;
         }
         const point = this._localPointer(event);
@@ -567,7 +610,7 @@
       });
 
       const endPointer = (event) => {
-        if (!this._pointer) {
+        if (!this._pointer || event.pointerId !== this._pointer.id) {
           return;
         }
         const wasClick = !this._pointer.moved;
@@ -599,7 +642,8 @@
         (event) => {
           event.preventDefault();
           const point = this._localPointer(event);
-          const factor = event.deltaY < 0 ? WHEEL_ZOOM_IN : WHEEL_ZOOM_OUT;
+          const factor =
+            event.deltaY < 0 ? 1 + this.zoomStep : 1 / (1 + this.zoomStep);
           this.camera.zoomAt(point.x, point.y, factor);
         },
         { passive: false }

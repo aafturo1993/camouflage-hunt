@@ -139,6 +139,24 @@ function randomStartPosition() {
   };
 }
 
+/**
+ * Genera una posición de salida separada de las ya colocadas.
+ * Evita que dos escondidos nazcan uno encima de otro (ver F-07).
+ */
+function spawnAwayFrom(existing, minGap) {
+  let candidate = randomStartPosition();
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    candidate = randomStartPosition();
+    const tooClose = existing.some(
+      (position) => Math.hypot(position.x - candidate.x, position.y - candidate.y) < minGap
+    );
+    if (!tooClose) {
+      return candidate;
+    }
+  }
+  return candidate;
+}
+
 /** ¿El punto (x, y) de mundo cae dentro de la caja del personaje? */
 function isInsideCharacter(x, y, position) {
   const halfWidth = CHARACTER.width / 2 + HUNTER.hitPaddingX;
@@ -199,6 +217,8 @@ function publicRoomState(room, viewerId) {
     round: room.round,
     mapId: room.mapId,
     phaseEndsAt: room.phaseEndsAt,
+    // Reloj del servidor: el cliente calcula su desfase y no depende de su propia hora.
+    serverNow: Date.now(),
     players,
     viewer: {
       id: viewerId,
@@ -292,12 +312,19 @@ function beginPreparation(room) {
     room.hunterId = null;
   }
 
+  const placed = [];
   for (const player of room.players.values()) {
     player.ready = false;
     player.found = false;
     player.locked = false;
-    // El cazador no tiene personaje; cada escondido arranca en un punto aleatorio.
-    player.position = player.id === room.hunterId ? null : randomStartPosition();
+    // El cazador no tiene personaje; cada escondido nace en un punto aleatorio
+    // separado del resto para que no aparezcan superpuestos.
+    if (player.id === room.hunterId) {
+      player.position = null;
+      continue;
+    }
+    player.position = spawnAwayFrom(placed, CHARACTER.width);
+    placed.push(player.position);
   }
 
   schedulePhase(room, PREPARATION_SECONDS, beginSearch);
@@ -524,6 +551,9 @@ io.on("connection", (socket) => {
       if (room.hostId !== socket.id) {
         throw new Error("Solo el anfitrión puede finalizar la ronda.");
       }
+      if (room.phase !== "SEARCH" && room.phase !== "PREPARATION") {
+        throw new Error("No hay ninguna ronda en curso.");
+      }
 
       finishRound(room);
       callback({ ok: true });
@@ -541,6 +571,9 @@ io.on("connection", (socket) => {
 
       if (room.hostId !== socket.id) {
         throw new Error("Solo el anfitrión puede volver al lobby.");
+      }
+      if (room.phase !== "RESULTS") {
+        throw new Error("Solo se puede volver al lobby desde los resultados.");
       }
 
       resetToLobby(room);
@@ -639,6 +672,9 @@ io.on("connection", (socket) => {
       if (!Number.isFinite(x) || !Number.isFinite(y)) {
         throw new Error("Coordenadas inválidas.");
       }
+      if (x < 0 || y < 0 || x > WORLD.width || y > WORLD.height) {
+        throw new Error("Has disparado fuera del mapa.");
+      }
 
       room.lastShotAt = now;
       room.hunterShotsRemaining -= 1;
@@ -709,6 +745,29 @@ io.on("connection", (socket) => {
     if (room.hunterId === socket.id && room.phase !== "LOBBY") {
       resetToLobby(room);
       return;
+    }
+
+    // F-04: si en plena partida ya no hay jugadores suficientes, volver al lobby.
+    const connectedCount = [...room.players.values()].filter(
+      (player) => player.connected
+    ).length;
+    if (room.phase !== "LOBBY" && connectedCount < MIN_PLAYERS) {
+      resetToLobby(room);
+      return;
+    }
+
+    // F-02: en búsqueda hay que refrescar los personajes (el que se fue ya no está)
+    // y terminar la ronda si no queda ningún escondido sin encontrar.
+    if (room.phase === "SEARCH" || room.phase === "RESULTS") {
+      emitCharacters(room);
+      const remainingHiders = [...room.players.values()].filter(
+        (player) =>
+          player.id !== room.hunterId && player.connected && !player.found
+      );
+      if (room.phase === "SEARCH" && remainingHiders.length === 0) {
+        finishRound(room);
+        return;
+      }
     }
 
     emitRoomState(room);

@@ -50,6 +50,10 @@ let lastStageKey = null;
 let shotCooldownUntil = 0;
 let shotsRemaining = 0;
 let selfLocked = false;
+// Última lista de personajes recibida; se guarda aunque el motor aún no exista (F-01).
+let latestCharacters = [];
+// Desfase entre el reloj del servidor y el del navegador, para la cuenta atrás (F-05).
+let serverClockOffset = 0;
 
 function setHidden(element, hidden) {
   element.classList.toggle("hidden", hidden);
@@ -466,8 +470,12 @@ async function updateStage() {
   const engine = ensureRenderer();
   const limits = getZoomLimits(roomState.viewer.role);
 
-  engine.loadMap(map);
+  engine.setViewerId(roomState.viewer.id);
+  engine.setZoomStep(config.camera?.zoomStep);
+  // F-14: aplicar los límites de zoom del rol ANTES de cargar el mapa, que fija
+  // el zoom inicial al mínimo.
   engine.setZoomLimits(limits.minZoom, limits.maxZoom);
+  engine.loadMap(map);
   elements.gameCanvas.classList.toggle("aiming", isHunter && phase === "SEARCH");
 
   // Inicialización pesada del modo solo cuando cambia fase / rol / ronda,
@@ -475,9 +483,13 @@ async function updateStage() {
   const stageKey = `${phase}:${roomState.viewer.role}:${roomState.round}`;
   if (stageKey !== lastStageKey) {
     lastStageKey = stageKey;
+    // F-09: el mensaje de juego solo se limpia al cambiar de fase, no en cada
+    // actualización, para que los avisos de disparo no desaparezcan solos.
+    setMessage(elements.gameMessage);
 
     if (phase === "PREPARATION") {
       selfLocked = false;
+      latestCharacters = [];
       engine.setModePrepHider(roomState.viewer.position);
     } else if (phase === "SEARCH") {
       engine.setModeSearch({ shoot: isHunter });
@@ -486,12 +498,17 @@ async function updateStage() {
     }
   }
 
+  // F-01: vuelca la lista de personajes recibida aunque llegara antes de existir
+  // el motor (puede pasar con transporte polling).
+  if (phase === "SEARCH" || phase === "RESULTS") {
+    engine.setCharacters(latestCharacters);
+  }
+
   engine.start();
 }
 
 function renderGame() {
   showGamePanel();
-  setMessage(elements.gameMessage);
 
   const isHost = roomState.viewer.isHost;
 
@@ -521,7 +538,10 @@ function startCountdown() {
       return;
     }
 
-    const milliseconds = Math.max(0, roomState.phaseEndsAt - Date.now());
+    // F-05: usamos el reloj del servidor (hora local + desfase) en vez del reloj
+    // del navegador, que puede ir desincronizado entre dispositivos.
+    const estimatedServerNow = Date.now() + serverClockOffset;
+    const milliseconds = Math.max(0, roomState.phaseEndsAt - estimatedServerNow);
     const totalSeconds = Math.ceil(milliseconds / 1000);
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
@@ -577,6 +597,20 @@ elements.roomCodeInput.addEventListener("input", () => {
 
 socket.on("connect", () => {
   elements.connectionStatus.textContent = "Conectado";
+
+  // F-06: al reconectar, Socket.IO trae un id nuevo y el servidor ya no nos
+  // conoce. Si teníamos una partida en marcha, la descartamos y volvemos a la
+  // pantalla de entrada en vez de dejar una pantalla que parece correcta pero
+  // no responde.
+  if (roomState) {
+    roomState = null;
+    render();
+    setMessage(
+      elements.connectionError,
+      "Se perdió la conexión. Vuelve a entrar en la sala.",
+      true
+    );
+  }
 });
 
 socket.on("disconnect", () => {
@@ -594,13 +628,19 @@ socket.on("disconnect", () => {
 });
 
 socket.on("room:state", (nextState) => {
+  // F-05: guardamos el desfase con el reloj del servidor al recibir el estado.
+  if (typeof nextState.serverNow === "number") {
+    serverClockOffset = nextState.serverNow - Date.now();
+  }
   roomState = nextState;
   render();
 });
 
 socket.on("game:characters", (payload) => {
+  // F-01: guardamos siempre la lista, aunque el motor todavía no exista.
+  latestCharacters = payload?.characters ?? [];
   if (renderer) {
-    renderer.setCharacters(payload?.characters ?? []);
+    renderer.setCharacters(latestCharacters);
   }
 });
 
