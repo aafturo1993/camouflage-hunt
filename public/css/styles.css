@@ -333,7 +333,8 @@ input:focus {
   position: absolute;
   left: 0.6rem;
   bottom: 0.6rem;
-  max-width: min(48%, 460px);
+  /* A la derecha empieza la barra de pintura: el aviso no puede invadirla. */
+  max-width: min(30%, 380px);
   z-index: 5;
   margin: 0;
   padding: 0.3rem 0.5rem;
@@ -541,10 +542,19 @@ body.in-game .game-topbar {
   right: 0;
   left: 0;
   z-index: 12;
+  /* Ronda, fase y temporizador van juntos a la izquierda: la derecha es de los
+     botones de anfitrión, que están por encima. */
+  justify-content: flex-start;
+  gap: 1.4rem;
   padding: 0.5rem 0.9rem;
   background: linear-gradient(rgba(15, 20, 25, 0.88), rgba(15, 20, 25, 0));
   color: #fff;
   pointer-events: none;
+}
+
+body.in-game .timer {
+  min-width: 0;
+  text-align: left;
 }
 
 body.in-game .game-topbar .eyebrow,
@@ -570,12 +580,12 @@ body.in-game .game-card > .actions > * {
 /* Los avisos del escenario bajan para no quedar debajo de la franja. */
 body.in-game .role-hud,
 body.in-game .ammo-hud {
-  top: 3.7rem;
+  top: 5.2rem;
 }
 
 body.in-game #game-message {
   position: absolute;
-  top: 3.7rem;
+  top: 5.2rem;
   left: 50%;
   z-index: 11;
   max-width: min(50%, 420px);
@@ -618,12 +628,41 @@ body.in-game #game-message:empty {
     font-size: 1.5rem;
   }
 
-  /* Los botones siguen arriba a la derecha: abajo está ocupado por el aviso,
-     el zoom y la barra de pintura. Solo se hacen más pequeños. */
+  /*
+    Aquí no caben el título, el temporizador y los botones en la misma línea,
+    así que los botones bajan a una segunda fila y todo lo demás baja con
+    ellos. Abajo no pueden ir: está ocupado por el aviso, el zoom y la barra
+    de pintura.
+  */
+  body.in-game .game-card > .actions {
+    top: 3.5rem;
+    left: 0.6rem;
+    right: 0.6rem;
+    justify-content: flex-end;
+    gap: 0.4rem;
+  }
+
   body.in-game .game-card > .actions button {
     min-height: 36px;
     padding: 0.4rem 0.6rem;
     font-size: 0.85rem;
+  }
+
+  body.in-game .role-hud,
+  body.in-game .ammo-hud,
+  body.in-game #game-message {
+    top: 7.2rem;
+  }
+
+  body.in-game #game-message {
+    max-width: min(80%, 320px);
+  }
+
+  /* La barra de pintura ocupa todo el ancho, así que el aviso se queda con la
+     franja de abajo entera, salvo el hueco de los botones de zoom. */
+  .camera-hint {
+    max-width: none;
+    right: 6rem;
   }
 
   /*
