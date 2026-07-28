@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Camouflage Hunt</title>
+    <link rel="stylesheet" href="/css/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="brand">
+        <p class="eyebrow">Team Building</p>
+        <h1>Camouflage Hunt</h1>
+        <p>Escóndete, píntate y desafía al cazador.</p>
+      </header>
+
+      <section id="connection-panel" class="card">
+        <h2>Entrar en la partida</h2>
+
+        <label>
+          Tu nombre
+          <input
+            id="player-name"
+            maxlength="24"
+            autocomplete="nickname"
+            placeholder="Ejemplo: Laura"
+          />
+        </label>
+
+        <div class="actions">
+          <button id="create-room" class="primary">Crear sala</button>
+        </div>
+
+        <div class="divider"><span>o</span></div>
+
+        <label>
+          Código de sala
+          <input
+            id="room-code"
+            maxlength="5"
+            autocomplete="off"
+            placeholder="ABCDE"
+          />
+        </label>
+
+        <button id="join-room">Entrar en sala</button>
+        <p id="connection-error" class="message error" aria-live="polite"></p>
+      </section>
+
+      <section id="lobby-panel" class="card hidden">
+        <div class="room-heading">
+          <div>
+            <p class="eyebrow">Código de sala</p>
+            <h2 id="room-code-title">-----</h2>
+          </div>
+          <button id="copy-code" class="compact">Copiar código</button>
+        </div>
+
+        <div class="status-row">
+          <span id="connection-status" class="pill">Conectando…</span>
+          <span id="player-count" class="pill">0 jugadores</span>
+        </div>
+
+        <h3>Jugadores</h3>
+        <ul id="player-list" class="player-list"></ul>
+
+        <div class="actions">
+          <button id="ready-button">Estoy preparado</button>
+          <button id="start-button" class="primary hidden">Iniciar partida</button>
+        </div>
+
+        <p id="lobby-message" class="message" aria-live="polite"></p>
+      </section>
+
+      <section id="game-panel" class="card game-card hidden">
+        <div class="game-topbar">
+          <div>
+            <p class="eyebrow">Ronda <span id="round-number">1</span></p>
+            <h2 id="phase-title">Preparación</h2>
+          </div>
+          <strong id="timer" class="timer">02:00</strong>
+        </div>
+
+        <div id="game-stage" class="game-stage">
+          <canvas id="game-canvas" class="game-canvas"></canvas>
+
+          <div id="role-hud" class="role-hud">
+            <p class="stage-label" id="role-title">Eres un jugador</p>
+            <p id="role-help"></p>
+          </div>
+
+          <p id="camera-hint" class="camera-hint">
+            Arrastra para mover · Rueda para acercar o alejar
+          </p>
+
+          <div id="camera-controls" class="camera-controls">
+            <button id="zoom-out" class="compact" type="button" aria-label="Alejar">
+              −
+            </button>
+            <button id="zoom-in" class="compact" type="button" aria-label="Acercar">
+              +
+            </button>
+          </div>
+
+          <div id="curtain" class="curtain hidden">
+            <div>
+              <p class="curtain-icon">🎭</p>
+              <h2>No puedes mirar todavía</h2>
+              <p>Los demás jugadores se están escondiendo y pintando.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="finish-round" class="hidden">Finalizar ronda</button>
+          <button id="return-lobby" class="primary hidden">
+            Volver al lobby
+          </button>
+        </div>
+
+        <p id="game-message" class="message" aria-live="polite"></p>
+      </section>
+    </main>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/js/camera.js" defer></script>
+    <script src="/js/gameRenderer.js" defer></script>
+    <script src="/js/app.js" defer></script>
+  </body>
+</html>

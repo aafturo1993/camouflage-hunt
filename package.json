@@ -1,0 +1,19 @@
+{
+  "name": "camouflage-hunt",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Juego web multijugador de camuflaje para team building",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "start:solo": "set MIN_PLAYERS=1&& node server.js"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "express": "5.2.1",
+    "socket.io": "4.8.3"
+  }
+}
