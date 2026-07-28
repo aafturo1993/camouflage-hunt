@@ -28,9 +28,13 @@ const CAMERA = {
 // El personaje se ancla por su CENTRO.
 const CHARACTER = {
   sprite: "/assets/players/monigote-01.png",
-  width: 74,
-  height: 132,
-  speed: 340
+  width: 37,
+  height: 66,
+  speed: 340,
+  // El escondido gira su monigote con la tecla R. Cada pulsación suma este
+  // ángulo, así que ocho pulsaciones dan la vuelta completa y lo devuelven
+  // a la vertical.
+  rotationStepDegrees: 45
 };
 
 // Reglas de disparo del cazador.
