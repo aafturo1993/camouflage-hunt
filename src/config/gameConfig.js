@@ -104,7 +104,7 @@ const LIMITS = {
   minPlayers: Number(process.env.MIN_PLAYERS) || 2
 };
 
-const DEFAULT_MAP_ID = "placeholder-01";
+const DEFAULT_MAP_ID = "oficina-2d";
 
 module.exports = {
   WORLD,
