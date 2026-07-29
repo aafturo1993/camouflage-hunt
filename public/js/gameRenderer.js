@@ -493,6 +493,18 @@
       }
 
       if (this.mode === "PREP" && this.self) {
+        // Los compañeros, para poder repartirse el mapa y no acabar tres detrás
+        // del mismo arbusto. El propio se dibuja aparte y encima, porque su
+        // posición es la local (sin el retardo de la red) y lleva su etiqueta.
+        for (const character of this.characters) {
+          if (character.id != null && character.id === this.viewerId) {
+            continue;
+          }
+          this._drawCharacter(character.x, character.y, {
+            rotation: character.rotation ?? 0,
+            texture: character._paintImage
+          });
+        }
         this._drawCharacter(this.self.x, this.self.y, {
           isSelf: true,
           rotation: this.rotation,

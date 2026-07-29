@@ -883,7 +883,10 @@ async function updateStage() {
 
     if (phase === "PREPARATION") {
       selfLocked = false;
-      latestCharacters = [];
+      // No se vacía latestCharacters: las posiciones de salida de los compañeros
+      // llegan justo detrás del cambio de fase y pueden haberse procesado ya
+      // (mismo caso que F-01). La lista completa que manda el servidor al
+      // empezar sustituye a la de la ronda anterior.
       engine.setModePrepHider(roomState.viewer.position);
     } else if (phase === "SEARCH") {
       engine.setModeSearch({ shoot: isHunter });
@@ -894,7 +897,7 @@ async function updateStage() {
 
   // F-01: vuelca la lista de personajes recibida aunque llegara antes de existir
   // el motor (puede pasar con transporte polling).
-  if (phase === "SEARCH" || phase === "RESULTS") {
+  if (phase === "PREPARATION" || phase === "SEARCH" || phase === "RESULTS") {
     engine.setCharacters(latestCharacters);
   }
 
@@ -1185,6 +1188,32 @@ socket.on("game:characters", (payload) => {
   if (renderer) {
     renderer.setCharacters(latestCharacters);
     refreshPaintAnchor();
+  }
+});
+
+socket.on("player:position", (payload) => {
+  // Un compañero se ha movido durante la preparación. Llega suelto y a menudo,
+  // así que se actualiza solo su entrada en vez de rehacer la lista.
+  if (!payload || payload.id == null) {
+    return;
+  }
+  const character = latestCharacters.find((entry) => entry.id === payload.id);
+  if (character) {
+    character.x = payload.x;
+    character.y = payload.y;
+    character.rotation = payload.rotation ?? 0;
+  } else {
+    latestCharacters.push({
+      id: payload.id,
+      x: payload.x,
+      y: payload.y,
+      rotation: payload.rotation ?? 0,
+      found: false,
+      paint: null
+    });
+  }
+  if (renderer) {
+    renderer.setCharacters(latestCharacters);
   }
 });
 

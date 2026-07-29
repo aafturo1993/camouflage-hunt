@@ -250,6 +250,16 @@ function characterList(room) {
 }
 
 function emitCharacters(room) {
+  if (room.phase === "PREPARATION") {
+    // Durante la preparación los escondidos se ven entre ellos, para poder
+    // repartirse el mapa y no acabar tres detrás del mismo arbusto. El cazador
+    // queda fuera del envío: tiene el telón puesto, pero si las posiciones le
+    // llegaran al navegador tendría la partida resuelta antes de empezar.
+    io.to(room.code)
+      .except(room.hunterId)
+      .emit("game:characters", { characters: characterList(room) });
+    return;
+  }
   if (room.phase !== "SEARCH" && room.phase !== "RESULTS") {
     return;
   }
@@ -429,6 +439,9 @@ function beginPreparation(room) {
   );
   schedulePhase(room, PREPARATION_SECONDS, beginSearch);
   emitRoomState(room);
+  // Posiciones de salida, para que cada escondido vea desde el principio dónde
+  // están los demás. Solo lo reciben ellos.
+  emitCharacters(room);
 }
 
 function beginSearch(room) {
@@ -843,6 +856,21 @@ io.on("connection", (socket) => {
       // se recorta a los límites del mapa, que dependen de ese ángulo.
       player.rotation = normalizeRotation(payload?.rotation ?? player.rotation);
       player.position = clampPosition({ x, y }, player.rotation);
+
+      // Los demás escondidos le ven colocarse. Se manda la posición suelta y no
+      // la lista entera porque esto llega muchas veces por segundo y por
+      // jugador, y la lista lleva además la pintura, que pesa. El cazador
+      // queda fuera.
+      socket
+        .to(room.code)
+        .except(room.hunterId)
+        .emit("player:position", {
+          id: player.id,
+          x: player.position.x,
+          y: player.position.y,
+          rotation: player.rotation
+        });
+
       callback({ ok: true, position: player.position, rotation: player.rotation });
     } catch (error) {
       callback({ ok: false, message: error.message });
@@ -874,6 +902,21 @@ io.on("connection", (socket) => {
         }
       }
       player.locked = locked;
+
+      // Al fijar se manda la posición exacta, así los compañeros ven dónde se
+      // ha quedado de verdad y no en el último envío periódico.
+      if (player.position) {
+        socket
+          .to(room.code)
+          .except(room.hunterId)
+          .emit("player:position", {
+            id: player.id,
+            x: player.position.x,
+            y: player.position.y,
+            rotation: player.rotation ?? 0
+          });
+      }
+
       callback({
         ok: true,
         locked,
@@ -911,6 +954,10 @@ io.on("connection", (socket) => {
         player.paint = null;
         if (room.phase === "SEARCH") {
           io.to(room.code).emit("game:paint", { id: player.id, paint: null });
+        } else {
+          io.to(room.code)
+            .except(room.hunterId)
+            .emit("game:paint", { id: player.id, paint: null });
         }
         callback({ ok: true });
         return;
@@ -926,10 +973,15 @@ io.on("connection", (socket) => {
       }
 
       player.paint = image;
-      // En preparación NO se reemite (el cazador no debe verla todavía). En la
-      // búsqueda la pintura ya es visible, así que se difunde al momento.
+      // En la búsqueda la pintura ya es visible para todos. En la preparación
+      // se difunde solo entre escondidos, para que se vean camuflarse unos a
+      // otros sin que el cazador reciba nada.
       if (room.phase === "SEARCH") {
         io.to(room.code).emit("game:paint", { id: player.id, paint: player.paint });
+      } else {
+        io.to(room.code)
+          .except(room.hunterId)
+          .emit("game:paint", { id: player.id, paint: player.paint });
       }
       callback({ ok: true });
     } catch (error) {
@@ -1068,6 +1120,12 @@ io.on("connection", (socket) => {
     if (room.phase !== "LOBBY" && connectedCount < MIN_PLAYERS) {
       resetToLobby(room);
       return;
+    }
+
+    // En preparación los escondidos se ven entre ellos, así que hay que
+    // refrescar la lista para que el que se ha ido desaparezca del mapa.
+    if (room.phase === "PREPARATION") {
+      emitCharacters(room);
     }
 
     // F-02: en búsqueda hay que refrescar los personajes (el que se fue ya no está)
