@@ -1008,7 +1008,10 @@ io.on("connection", (socket) => {
         remaining: room.hunterShotsRemaining
       });
 
-      if (remainingHiders.length === 0) {
+      // La ronda acaba cuando no queda a quién buscar o cuando el cazador se
+      // queda sin munición. Sin esto, gastada la última bala la partida seguía
+      // corriendo hasta agotar el reloj sin que nadie pudiera hacer nada.
+      if (remainingHiders.length === 0 || room.hunterShotsRemaining <= 0) {
         finishRound(room);
       } else {
         emitRoomState(room);
