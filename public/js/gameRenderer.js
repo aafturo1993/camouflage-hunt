@@ -522,6 +522,58 @@
       this._drawEffects(timestamp);
     }
 
+    /**
+     * Silueta del monigote teñida de un color, guardada para no rehacerla en
+     * cada fotograma. Sirve para el borde: se dibuja desplazada por debajo del
+     * cuerpo y lo que asoma alrededor es el contorno.
+     */
+    _silhouette(color) {
+      if (!this.spriteReady || !this.sprite) {
+        return null;
+      }
+      if (!this._silhouettes) {
+        this._silhouettes = new Map();
+      }
+      const cached = this._silhouettes.get(color);
+      if (cached && cached.src === this.sprite.src) {
+        return cached.canvas;
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = this.sprite.naturalWidth || 200;
+      canvas.height = this.sprite.naturalHeight || 360;
+      const context = canvas.getContext("2d");
+      context.drawImage(this.sprite, 0, 0, canvas.width, canvas.height);
+      context.globalCompositeOperation = "source-in";
+      context.fillStyle = color;
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      this._silhouettes.set(color, { src: this.sprite.src, canvas });
+      return canvas;
+    }
+
+    /**
+     * Contorno del monigote. El desplazamiento va en píxeles de PANTALLA, no de
+     * mundo, así el borde se mantiene igual de fino por mucho que se acerque el
+     * cazador: si fuera de mundo, al 800 % sería un pegote.
+     */
+    _drawOutline(left, top, width, height, style) {
+      const silhouette = this._silhouette(style.color);
+      if (!silhouette) {
+        return;
+      }
+      const d = style.offset;
+      const pasos = style.diagonal
+        ? [[-d, 0], [d, 0], [0, -d], [0, d], [-d, -d], [d, -d], [-d, d], [d, d]]
+        : [[-d, 0], [d, 0], [0, -d], [0, d]];
+      const ctx = this.ctx;
+      ctx.save();
+      // Se multiplica para respetar el atenuado del personaje ya encontrado.
+      ctx.globalAlpha = ctx.globalAlpha * style.alpha;
+      for (const [offsetX, offsetY] of pasos) {
+        ctx.drawImage(silhouette, left + offsetX, top + offsetY, width, height);
+      }
+      ctx.restore();
+    }
+
     _drawCharacter(worldX, worldY, options = {}) {
       const ctx = this.ctx;
       const zoom = this.camera.zoom;
@@ -545,6 +597,32 @@
         ctx.translate(screen.x, screen.y);
         ctx.rotate(radians);
         ctx.translate(-screen.x, -screen.y);
+      }
+
+      // Borde. Durante la partida es el mínimo imprescindible: un píxel muy
+      // tenue, lo justo para que el cazador tenga algo a lo que agarrarse sin
+      // regalarle la silueta. Al acabar, en el revelado, se marca de verdad
+      // para que se vea dónde estaba cada uno y lo bien que se camufló.
+      if (options.reveal) {
+        this._drawOutline(left, top, width, height, {
+          color: "#11161b",
+          offset: 3,
+          alpha: 0.9,
+          diagonal: true
+        });
+        this._drawOutline(left, top, width, height, {
+          color: "#ffffff",
+          offset: 1.5,
+          alpha: 0.95,
+          diagonal: true
+        });
+      } else {
+        this._drawOutline(left, top, width, height, {
+          color: "#0f1419",
+          offset: 1,
+          alpha: 0.28,
+          diagonal: false
+        });
       }
 
       // La pintura SUSTITUYE al sprite, no se dibuja encima. Con las dos capas
