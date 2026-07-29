@@ -34,6 +34,7 @@ const elements = {
   paintToolbar: document.querySelector("#paint-toolbar"),
   paintEyedropper: document.querySelector("#paint-eyedropper"),
   paintColor: document.querySelector("#paint-color"),
+  paintWheel: document.querySelector("#paint-wheel"),
   paintClear: document.querySelector("#paint-clear"),
   zoomIn: document.querySelector("#zoom-in"),
   zoomOut: document.querySelector("#zoom-out"),
@@ -338,6 +339,15 @@ function wirePaintToolbar() {
     });
   }
 
+  // Rueda de color: el selector del navegador da cualquier tono, no solo los
+  // de la paleta. "input" se dispara mientras se arrastra, así que el color de
+  // pintura va cambiando en directo.
+  if (elements.paintWheel) {
+    elements.paintWheel.addEventListener("input", (event) => {
+      applyPaintColor(event.target.value);
+    });
+  }
+
   buildPaintPalette();
   applyPaintColor(clientConfig?.paint?.defaultColor ?? "#6b7257");
 }
@@ -389,6 +399,11 @@ function applyPaintColor(hex) {
   }
   if (elements.paintColor) {
     elements.paintColor.style.background = hex;
+  }
+  // La rueda sigue al color actual, venga de donde venga (paleta o cuentagotas),
+  // para que al abrirla parta de lo que se está usando. Solo admite #rrggbb.
+  if (elements.paintWheel && /^#[0-9a-f]{6}$/i.test(hex)) {
+    elements.paintWheel.value = hex;
   }
   document.querySelectorAll(".paint-swatch").forEach((swatch) => {
     swatch.classList.toggle("is-active", swatch.dataset.color === hex);

@@ -449,6 +449,81 @@ input:focus {
   background: rgba(255, 255, 255, 0.2);
 }
 
+/* Colores rápidos: los rellena el motor con la paleta de la configuración. */
+/* En una sola fila: apilada en varias engordaba la barra y comía mapa. */
+.paint-palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.22rem;
+  max-width: 21rem;
+}
+
+.paint-toolbar .paint-swatch {
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  min-height: 18px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 0.28rem;
+}
+
+.paint-toolbar .paint-swatch.is-active {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85);
+}
+
+/*
+  Rueda de color. El círculo con todos los matices es decorativo; quien abre el
+  selector completo es el <input type="color">, que va encima invisible porque
+  cada navegador lo dibuja a su manera.
+*/
+.paint-wheel {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border: 2px solid rgba(255, 255, 255, 0.75);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, #fff 0%, rgba(255, 255, 255, 0) 62%),
+    conic-gradient(
+      #ff0000,
+      #ffff00,
+      #00ff00,
+      #00ffff,
+      #0000ff,
+      #ff00ff,
+      #ff0000
+    );
+  cursor: pointer;
+}
+
+.paint-wheel:hover {
+  border-color: #fff;
+}
+
+.paint-wheel input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* Muestra del color actual. El motor le fija el fondo. */
 .paint-color {
   width: 30px;

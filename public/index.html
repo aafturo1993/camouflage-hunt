@@ -127,6 +127,19 @@
             <button id="paint-eyedropper" class="paint-tool" type="button">
               Cuentagotas
             </button>
+
+            <!-- Colores rápidos. El motor lo rellena con la paleta de la config. -->
+            <div id="paint-palette" class="paint-palette" role="group" aria-label="Colores rápidos"></div>
+
+            <!--
+              Rueda de color: abre el selector completo del navegador, para que
+              el jugador no dependa de los colores predefinidos.
+            -->
+            <label class="paint-wheel" title="Elegir cualquier color">
+              <span class="visually-hidden">Elegir cualquier color</span>
+              <input type="color" id="paint-wheel" value="#6b7257" />
+            </label>
+
             <span id="paint-color" class="paint-color" aria-label="Color actual"></span>
             <button id="paint-clear" class="paint-tool" type="button">Limpiar</button>
           </div>
