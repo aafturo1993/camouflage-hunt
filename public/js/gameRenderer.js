@@ -617,10 +617,15 @@
           diagonal: true
         });
       } else {
+        // El borde crece con el acercamiento en vez de ser fijo. En la vista de
+        // conjunto, que es desde donde el cazador barre el mapa, se queda en una
+        // fracción de píxel y no se distingue; solo cuando se acerca de verdad a
+        // mirar una zona llega a un píxel. Antes era 1 píxel siempre y a esa
+        // distancia el monigote se reconocía a la primera pasada.
         this._drawOutline(left, top, width, height, {
           color: "#0f1419",
-          offset: 1,
-          alpha: 0.28,
+          offset: clamp(zoom * 0.2, 0.12, 1),
+          alpha: 0.14,
           diagonal: false
         });
       }
