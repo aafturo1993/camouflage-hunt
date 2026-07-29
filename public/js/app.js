@@ -287,7 +287,14 @@ async function setupPaint() {
   if (!paintEngine) {
     paintEngine = new window.PaintEngine();
     paintEngine.onSnapshot = (image) => {
-      socket.emit("paint:snapshot", { image });
+      // F-26: recogemos el acuse. Si el servidor rechaza la pintura (pesa
+      // demasiado, la fase ya no lo permite, o acaban de encontrarte), avisamos:
+      // el jugador creería estar camuflado con algo que el servidor no tiene.
+      socket.emit("paint:snapshot", { image }, (response) => {
+        if (response && !response.ok) {
+          setMessage(elements.gameMessage, response.message, true);
+        }
+      });
     };
   }
   if (clientConfig?.paint) {
