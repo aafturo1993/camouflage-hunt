@@ -687,6 +687,28 @@ function updateRoleTexts() {
   }
 }
 
+let preloadedMapSrc = null;
+
+/**
+ * Descarga la imagen del mapa sin dibujarla. La usa el cazador mientras está
+ * tapado, para que al levantarse el telón la imagen salga de la caché.
+ */
+function preloadMapImage() {
+  ensureConfig()
+    .then((config) => {
+      const map = getMapById(roomState?.mapId) ?? config.maps[0];
+      if (!map || preloadedMapSrc === map.image) {
+        return;
+      }
+      preloadedMapSrc = map.image;
+      const image = new Image();
+      image.src = map.image;
+    })
+    .catch(() => {
+      // Si falla, updateStage ya avisa por su cuenta cuando toque dibujar.
+    });
+}
+
 /** Configura el escenario (canvas, telón, personaje, disparo) según fase y rol. */
 async function updateStage() {
   const showMap = canViewMap();
@@ -699,7 +721,10 @@ async function updateStage() {
   setHidden(elements.ammoHud, !(isHunter && phase === "SEARCH"));
 
   if (!showMap) {
-    // El cazador durante la preparación no carga ni dibuja el mapa.
+    // El cazador durante la preparación no dibuja el mapa, pero sí lo va
+    // descargando por detrás del telón: cuando se abra, la imagen ya está en la
+    // caché del navegador y no hay ese instante de escenario a medio cargar.
+    preloadMapImage();
     if (renderer) {
       renderer.stop();
     }

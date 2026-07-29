@@ -424,6 +424,10 @@
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText("Cargando mapa…", viewportWidth / 2, viewportHeight / 2);
+        // Sin mapa no se dibuja a nadie. Si el telón se abre antes de que la
+        // imagen esté lista, los monigotes se verían recortados sobre el fondo
+        // vacío y el cazador sabría dónde está cada uno antes de empezar.
+        return;
       }
 
       if (this.mode === "PREP" && this.self) {
