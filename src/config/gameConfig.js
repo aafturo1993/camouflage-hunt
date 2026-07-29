@@ -66,7 +66,9 @@ const PAINT = {
   textureHeight: 360,
   brushSizes: { xs: 0.5, s: 1.2, m: 2.5, l: 5 },
   defaultBrush: "s",
-  defaultColor: "#6b7257",
+  // El monigote empieza en blanco: así se ve de un vistazo lo que llevas
+  // camuflado y lo que te queda por pintar.
+  defaultColor: "#ffffff",
   // Opciones de color de la rueda. El cuentagotas añade cualquier color del mapa.
   palette: [
     "#2b2f33", "#3a3f37", "#5c4a3a", "#6b7257", "#8a5a3b",
