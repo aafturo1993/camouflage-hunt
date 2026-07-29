@@ -53,6 +53,8 @@
       this._painting = false;
       this._lastTexPoint = null;
       this._lastSnapshotAt = 0;
+      // Envío diferido del último estado cuando toca esperar al intervalo (F-25).
+      this._pendingSendId = null;
     }
 
     configure(paintConfig, character) {
@@ -122,6 +124,8 @@
       this.hasPaint = false;
       this._painting = false;
       this._lastTexPoint = null;
+      // Cancela un envío diferido pendiente para que no reenvíe pintura vieja.
+      this._clearPendingSend();
     }
 
     /** Borra la pintura y avisa (para que el servidor la quite). */
@@ -182,7 +186,9 @@
       }
       this._painting = false;
       this._lastTexPoint = null;
-      this._sendSnapshot(true);
+      // F-25: respeta el intervalo. Si toca esperar, programa el envío del último
+      // estado en vez de forzarlo, para no saturar la red pintando en la búsqueda.
+      this._sendSnapshot(false);
     }
 
     _dab(point) {
@@ -251,19 +257,48 @@
       this._sendSnapshot(true);
     }
 
+    _now() {
+      return typeof performance !== "undefined" && performance.now
+        ? performance.now()
+        : 0;
+    }
+
+    _emitNow() {
+      this._clearPendingSend();
+      this._lastSnapshotAt = this._now();
+      this.onSnapshot(this.exportSnapshot());
+    }
+
+    _clearPendingSend() {
+      if (this._pendingSendId != null) {
+        clearTimeout(this._pendingSendId);
+        this._pendingSendId = null;
+      }
+    }
+
+    /**
+     * Envía el snapshot respetando el límite de frecuencia.
+     * - force: envía ya (fijar, limpiar). Cancela cualquier envío pendiente.
+     * - si no toca aún, programa un único envío diferido del último estado, de
+     *   modo que el último trazo nunca se pierde (mismo problema que el F-10).
+     */
     _sendSnapshot(force) {
       if (typeof this.onSnapshot !== "function") {
         return;
       }
-      const now =
-        typeof performance !== "undefined" && performance.now
-          ? performance.now()
-          : 0;
-      if (!force && now - this._lastSnapshotAt < this.snapshotMinIntervalMs) {
+      const elapsed = this._now() - this._lastSnapshotAt;
+      if (force || elapsed >= this.snapshotMinIntervalMs) {
+        this._emitNow();
         return;
       }
-      this._lastSnapshotAt = now;
-      this.onSnapshot(this.exportSnapshot());
+      if (this._pendingSendId != null) {
+        return; // ya hay un envío diferido en cola; enviará el estado más reciente
+      }
+      const wait = this.snapshotMinIntervalMs - elapsed;
+      this._pendingSendId = setTimeout(() => {
+        this._pendingSendId = null;
+        this._emitNow();
+      }, wait);
     }
   }
 
