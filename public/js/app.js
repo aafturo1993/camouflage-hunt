@@ -155,6 +155,11 @@ function ensureRenderer() {
       handleShoot(point);
     };
 
+    // Apuntado del cazador: se envía la posición del cursor limitada en frecuencia.
+    renderer.onAim = (world) => {
+      sendAim(world);
+    };
+
     // Pintura: el ratón en preparación pinta el monigote (o clona color con el
     // cuentagotas si está activo).
     renderer.onPaint = (type, world, screen) => {
@@ -248,6 +253,20 @@ async function handleShoot(point) {
 
 function updateAmmoHud() {
   elements.ammoCount.textContent = String(shotsRemaining);
+}
+
+// Envío del apuntado del cazador, limitado en frecuencia (no en cada píxel).
+let lastAimSentAt = 0;
+function sendAim(world) {
+  const now = Date.now();
+  if (now - lastAimSentAt < 150) {
+    return;
+  }
+  lastAimSentAt = now;
+  socket.emit("hunter:aim", {
+    x: Math.round(world.x),
+    y: Math.round(world.y)
+  });
 }
 
 // --- Pintura (módulo 4) -----------------------------------------------------
@@ -834,7 +853,84 @@ function renderGame() {
   setHidden(elements.returnLobby, !(isHost && roomState.phase === "RESULTS"));
 
   updateStage();
+  renderResults();
   startCountdown();
+}
+
+/**
+ * Pinta la pantalla de resultados de la ronda y la clasificación de la sesión.
+ * El contenedor se inyecta si Diseño aún no ha puesto uno (`#results-panel`);
+ * lleva estilos en línea a la espera de que Diseño lo reestilice.
+ */
+function renderResults() {
+  const results = roomState.phase === "RESULTS" ? roomState.results : null;
+  let panel = document.querySelector("#results-panel");
+
+  if (!results) {
+    if (panel) {
+      setHidden(panel, true);
+    }
+    return;
+  }
+
+  if (!panel) {
+    panel = document.createElement("div");
+    panel.id = "results-panel";
+    panel.className = "results-panel";
+    panel.style.position = "absolute";
+    panel.style.top = "50%";
+    panel.style.left = "50%";
+    panel.style.transform = "translate(-50%, -50%)";
+    panel.style.zIndex = "8";
+    panel.style.maxWidth = "min(92%, 460px)";
+    panel.style.maxHeight = "82%";
+    panel.style.overflowY = "auto";
+    panel.style.padding = "1rem 1.2rem";
+    panel.style.borderRadius = "0.9rem";
+    panel.style.background = "rgba(15, 20, 25, 0.92)";
+    panel.style.color = "#eef2f5";
+    panel.style.boxShadow = "0 18px 50px rgba(0, 0, 0, 0.45)";
+    const anchor = elements.gameStage ?? elements.gamePanel;
+    anchor.appendChild(panel);
+  }
+  setHidden(panel, false);
+
+  const escapeHtml = (value) =>
+    String(value).replace(/[&<>"]/g, (character) => {
+      const map = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
+      return map[character];
+    });
+
+  const roundRows = results.rows
+    .map((row) => {
+      const estado = row.found ? "Cazado" : "Sobrevivió";
+      const camo = row.camouflageBonuses
+        ? ` · camuflaje ×${row.camouflageBonuses}`
+        : "";
+      return `<li style="display:flex;justify-content:space-between;gap:0.8rem;padding:0.25rem 0;">
+        <span>${escapeHtml(row.name)} <small style="opacity:0.7;">(${estado}, ${row.survivalSeconds}s${camo})</small></span>
+        <strong>${row.roundScore}</strong>
+      </li>`;
+    })
+    .join("");
+
+  const standingRows = results.standings
+    .map(
+      (row, index) =>
+        `<li style="display:flex;justify-content:space-between;gap:0.8rem;padding:0.25rem 0;">
+          <span>${index + 1}. ${escapeHtml(row.name)}</span>
+          <strong>${row.sessionScore}</strong>
+        </li>`
+    )
+    .join("");
+
+  panel.innerHTML = `
+    <h2 style="margin:0 0 0.2rem;">Resultados de la ronda</h2>
+    <p style="margin:0 0 0.8rem;opacity:0.8;">Cazador: ${escapeHtml(results.hunterName)}</p>
+    <ul style="list-style:none;margin:0 0 1rem;padding:0;">${roundRows || "<li>Sin puntuación.</li>"}</ul>
+    <h3 style="margin:0 0 0.4rem;">Clasificación de la sesión</h3>
+    <ul style="list-style:none;margin:0;padding:0;">${standingRows || "<li>—</li>"}</ul>
+  `;
 }
 
 function startCountdown() {
@@ -969,6 +1065,16 @@ socket.on("game:shot", (payload) => {
   if (renderer && payload) {
     renderer.spawnShot(payload.x, payload.y, payload.hit);
   }
+});
+
+socket.on("game:camouflage", (payload) => {
+  // Aviso al escondido: su camuflaje ha funcionado (le apuntaron y no dispararon).
+  const bonus = clientConfig?.scoring?.hider?.camouflageBonus ?? 25;
+  setMessage(
+    elements.gameMessage,
+    `Tu camuflaje ha funcionado (+${bonus}). Te han apuntado y no han disparado.`,
+    false
+  );
 });
 
 // Precargamos la configuración para que el mapa aparezca sin esperas al entrar en juego.

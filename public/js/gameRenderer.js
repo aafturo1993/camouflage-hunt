@@ -806,6 +806,20 @@
         },
         { passive: false }
       );
+
+      // Apuntado del cazador: informa la posición del cursor (aunque no haya
+      // botón pulsado) durante la búsqueda, para el bonus de camuflaje.
+      canvas.addEventListener("pointermove", (event) => {
+        if (
+          this.mode === "SEARCH" &&
+          this.allowShoot &&
+          typeof this.onAim === "function"
+        ) {
+          const point = this._localPointer(event);
+          const world = this.camera.screenToWorld(point.x, point.y);
+          this.onAim(world);
+        }
+      });
     }
   }
 
