@@ -480,7 +480,20 @@
         ctx.translate(-screen.x, -screen.y);
       }
 
-      if (this.spriteReady && this.sprite) {
+      // La pintura SUSTITUYE al sprite, no se dibuja encima. Con las dos capas
+      // superpuestas, en el borde de la silueta ninguna es opaca del todo y
+      // asomaba parte del color del sprite: eso perfilaba al monigote sobre el
+      // mapa y lo delataba por muy bien camuflado que estuviera. La pintura ya
+      // nace cubriendo todo el cuerpo, así que no hace falta nada debajo.
+      const texture = options.texture;
+      const textureReady =
+        Boolean(texture) &&
+        (texture instanceof HTMLCanvasElement ||
+          (texture.complete && texture.naturalWidth > 0));
+
+      if (textureReady) {
+        ctx.drawImage(texture, left, top, width, height);
+      } else if (this.spriteReady && this.sprite) {
         ctx.drawImage(this.sprite, left, top, width, height);
       } else {
         // Silueta de reserva si el sprite aún no cargó.
@@ -491,17 +504,6 @@
         ctx.ellipse(screen.x, screen.y, width / 2, height / 2, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
-      }
-
-      // Pintura del jugador, encima del sprite y recortada ya a la silueta.
-      const texture = options.texture;
-      if (texture) {
-        const ready =
-          texture instanceof HTMLCanvasElement ||
-          (texture.complete && texture.naturalWidth > 0);
-        if (ready) {
-          ctx.drawImage(texture, left, top, width, height);
-        }
       }
       ctx.restore();
 

@@ -45,6 +45,9 @@
 
       this.brushRadiusWorld = 1.2;
       this.color = "#6b7257";
+      // Color con el que nace el cuerpo antes de pintar nada. La textura arranca
+      // rellena con él para que el sprite no tenga que verse por debajo.
+      this.baseColor = "#6b7257";
       this.hasPaint = false;
 
       this.snapshotMinIntervalMs = 400;
@@ -64,6 +67,7 @@
         this.snapshotMinIntervalMs =
           paintConfig.snapshotMinIntervalMs ?? this.snapshotMinIntervalMs;
         this.color = paintConfig.defaultColor ?? this.color;
+        this.baseColor = paintConfig.defaultColor ?? this.baseColor;
       }
       if (
         this.canvas.width !== this.textureWidth ||
@@ -92,6 +96,10 @@
         this.maskReady = true;
         // Recorta lo que ya hubiera pintado a la nueva silueta.
         this._applyMask();
+        // Si la silueta llegó después del reset, el cuerpo aún está vacío.
+        if (!this.hasPaint) {
+          this._fillBase();
+        }
       };
       image.onerror = () => {
         this.maskImage = null;
@@ -118,14 +126,35 @@
       return this.canvas;
     }
 
-    /** Empieza el lienzo de la ronda: sin pintura. */
+    /**
+     * Empieza el lienzo de la ronda: el cuerpo entero del color base.
+     *
+     * No se deja transparente a propósito. El monigote se dibujaba antes en dos
+     * capas —el sprite debajo y la pintura encima—, y en el borde de la silueta
+     * ninguna de las dos es opaca del todo, así que asomaba una parte del color
+     * del sprite y perfilaba la figura sobre el mapa. Con el cuerpo ya relleno,
+     * el sprite deja de hacer falta debajo y el contorno desaparece.
+     */
     reset() {
       this.ctx.clearRect(0, 0, this.textureWidth, this.textureHeight);
+      this._fillBase();
       this.hasPaint = false;
       this._painting = false;
       this._lastTexPoint = null;
       // Cancela un envío diferido pendiente para que no reenvíe pintura vieja.
       this._clearPendingSend();
+    }
+
+    /** Rellena toda la silueta con el color base. */
+    _fillBase() {
+      if (!this.maskReady || !this.maskImage) {
+        return; // aún no hay silueta; se rellena en cuanto cargue la máscara
+      }
+      const ctx = this.ctx;
+      ctx.globalCompositeOperation = "source-over";
+      ctx.fillStyle = this.baseColor;
+      ctx.fillRect(0, 0, this.textureWidth, this.textureHeight);
+      this._applyMask();
     }
 
     /** Borra la pintura y avisa (para que el servidor la quite). */
