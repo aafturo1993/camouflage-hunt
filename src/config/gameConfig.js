@@ -93,12 +93,13 @@ const SCORING = {
   }
 };
 
-// La ronda dura cinco minutos en total. Los 30 segundos que se le quitan a la
-// preparación se los queda la búsqueda: esconderse y pintarse da tiempo de
-// sobra en 90 s, y quien no termine puede seguir pintándose durante la caza.
+// Poco más de seis minutos por ronda. La preparación va justa a propósito:
+// quien no termine de camuflarse puede seguir pintándose durante la búsqueda
+// sin moverse del sitio. El grueso del tiempo se lo lleva la caza, que es donde
+// el cazador tiene que ir zona por zona y acercarse a mirar.
 const TIMERS = {
-  preparationSeconds: 90,
-  searchSeconds: 210
+  preparationSeconds: 100,
+  searchSeconds: 270
 };
 
 const LIMITS = {
