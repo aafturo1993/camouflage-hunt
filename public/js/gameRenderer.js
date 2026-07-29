@@ -72,6 +72,8 @@
       // Punto sobre el que pintar en búsqueda (el propio monigote congelado del
       // escondido que aún no ha sido encontrado). null = no se pinta en búsqueda.
       this.paintAnchor = null;
+      // Revelado de resultados: marca a todos los monigotes y muestra sus nombres.
+      this.reveal = false;
 
       this.running = false;
       this._rafId = null;
@@ -221,6 +223,24 @@
         anchor && Number.isFinite(anchor.x) && Number.isFinite(anchor.y)
           ? { x: anchor.x, y: anchor.y, rotation: anchor.rotation ?? 0 }
           : null;
+    }
+
+    setReveal(value) {
+      this.reveal = Boolean(value);
+    }
+
+    /**
+     * Encaja el mapa entero en la vista para el revelado de resultados, aunque el
+     * mínimo de zoom del rol no llegara a tanto. Centra el mapa.
+     */
+    revealFit() {
+      const fit = Math.min(
+        this.camera.viewport.width / this.world.width,
+        this.camera.viewport.height / this.world.height
+      );
+      this.camera.setZoomLimits(Math.min(fit, this.camera.minZoom), this.camera.maxZoom);
+      this.camera.setZoom(fit);
+      this.camera.centerOnWorld(this.world.width / 2, this.world.height / 2);
     }
 
     /** ¿Se puede pintar ahora? En preparación siempre; en búsqueda si hay ancla. */
@@ -491,7 +511,10 @@
             found: character.found,
             rotation: character.rotation ?? 0,
             isSelf, // F-12: marca cuál es el personaje del propio jugador.
-            texture
+            texture,
+            // En el revelado se marca a todos y se muestra el nombre.
+            reveal: this.reveal,
+            name: character.name
           });
         }
       }
@@ -511,7 +534,9 @@
       const radians = ((Number(options.rotation) || 0) * Math.PI) / 180;
 
       ctx.save();
-      if (options.found) {
+      // En el revelado se ven todos a plena opacidad (para apreciar el camuflaje);
+      // durante la búsqueda el cazado se atenúa.
+      if (options.found && !options.reveal) {
         ctx.globalAlpha = 0.55;
       }
       if (radians !== 0) {
@@ -562,6 +587,34 @@
         ctx.moveTo(screen.x + r, screen.y - r);
         ctx.lineTo(screen.x - r, screen.y + r);
         ctx.stroke();
+        ctx.restore();
+      }
+
+      if (options.reveal) {
+        // Revelado de resultados: un aro alrededor de cada monigote (rojo si fue
+        // cazado, verde si sobrevivió) y su nombre debajo, para ver a todos y
+        // cómo se camuflaron. El aro no gira con el cuerpo.
+        const ringColor = options.found ? "#d1332e" : "#1f9d55";
+        const ringRadius = Math.max(width, height) / 2 + 10;
+        ctx.save();
+        ctx.strokeStyle = ringColor;
+        ctx.lineWidth = Math.max(2, 3 * zoom);
+        ctx.beginPath();
+        ctx.arc(screen.x, screen.y, ringRadius, 0, Math.PI * 2);
+        ctx.stroke();
+
+        if (options.name) {
+          const label = options.name;
+          ctx.font = "bold 13px system-ui, sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "top";
+          const labelY = screen.y + ringRadius + 4;
+          const textWidth = ctx.measureText(label).width;
+          ctx.fillStyle = "rgba(15, 20, 25, 0.8)";
+          ctx.fillRect(screen.x - textWidth / 2 - 4, labelY - 2, textWidth + 8, 18);
+          ctx.fillStyle = "#eef2f5";
+          ctx.fillText(label, screen.x, labelY);
+        }
         ctx.restore();
       }
 

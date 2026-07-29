@@ -793,6 +793,16 @@ async function updateStage() {
     engine.setCharacters(latestCharacters);
   }
 
+  // Revelado de resultados: se marca a todos y se encaja el mapa entero una vez.
+  if (phase === "RESULTS") {
+    engine.setReveal(true);
+    if (stageChanged) {
+      engine.revealFit();
+    }
+  } else {
+    engine.setReveal(false);
+  }
+
   engine.start();
 
   // Pintura: el escondido puede pintar en preparación y también en la búsqueda
@@ -903,12 +913,11 @@ function renderResults() {
     panel.id = "results-panel";
     panel.className = "results-panel";
     panel.style.position = "absolute";
-    panel.style.top = "50%";
-    panel.style.left = "50%";
-    panel.style.transform = "translate(-50%, -50%)";
+    panel.style.top = "0.6rem";
+    panel.style.right = "0.6rem";
     panel.style.zIndex = "8";
-    panel.style.maxWidth = "min(92%, 460px)";
-    panel.style.maxHeight = "82%";
+    panel.style.maxWidth = "min(60%, 360px)";
+    panel.style.maxHeight = "calc(100% - 1.2rem)";
     panel.style.overflowY = "auto";
     panel.style.padding = "1rem 1.2rem";
     panel.style.borderRadius = "0.9rem";
