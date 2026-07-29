@@ -469,9 +469,113 @@ function getRoomCode() {
   return elements.roomCodeInput.value.trim().toUpperCase();
 }
 
+// --- Selección de mapa (menú y lobby) ---------------------------------------
+
+function mapName(mapId) {
+  const map = clientConfig?.maps?.find((entry) => entry.id === mapId);
+  return map ? map.name : mapId;
+}
+
+function fillMapOptions(select) {
+  select.replaceChildren();
+  for (const map of clientConfig?.maps ?? []) {
+    const option = document.createElement("option");
+    option.value = map.id;
+    option.textContent = map.name;
+    select.appendChild(option);
+  }
+}
+
+/**
+ * Crea (si Diseño no lo ha puesto) el selector de mapa del menú principal,
+ * poblado con los nombres de los mapas. Estilos en línea a la espera de Diseño.
+ */
+function buildMenuMapSelect() {
+  if (!clientConfig?.maps || clientConfig.maps.length === 0) {
+    return;
+  }
+  let select = document.querySelector("#map-select");
+  if (!select) {
+    const label = document.createElement("label");
+    label.textContent = "Mapa";
+    select = document.createElement("select");
+    select.id = "map-select";
+    select.style.width = "100%";
+    select.style.minHeight = "46px";
+    select.style.marginTop = "0.4rem";
+    select.style.borderRadius = "0.75rem";
+    select.style.border = "1px solid #aab7c4";
+    select.style.padding = "0.5rem 0.75rem";
+    label.appendChild(select);
+    const anchor = elements.createRoom.closest(".actions") ?? elements.createRoom;
+    anchor.parentNode.insertBefore(label, anchor);
+  }
+  if (select.options.length !== clientConfig.maps.length) {
+    fillMapOptions(select);
+  }
+}
+
+function getSelectedMenuMapId() {
+  const select = document.querySelector("#map-select");
+  return select ? select.value : undefined;
+}
+
+/** Muestra el mapa elegido en el lobby y, si eres anfitrión, deja cambiarlo. */
+function renderLobbyMap() {
+  let box = document.querySelector("#lobby-map");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "lobby-map";
+    box.style.display = "flex";
+    box.style.alignItems = "center";
+    box.style.gap = "0.6rem";
+    box.style.margin = "0.4rem 0 1rem";
+    elements.playerList.parentNode.insertBefore(box, elements.playerList);
+  }
+
+  const isHost = roomState.viewer.isHost;
+  if (isHost) {
+    let select = box.querySelector("select");
+    if (!select) {
+      box.replaceChildren();
+      const caption = document.createElement("span");
+      caption.textContent = "Mapa:";
+      caption.style.fontWeight = "700";
+      select = document.createElement("select");
+      select.style.flex = "1";
+      select.style.minHeight = "40px";
+      select.style.borderRadius = "0.6rem";
+      select.style.border = "1px solid #aab7c4";
+      select.style.padding = "0.3rem 0.5rem";
+      fillMapOptions(select);
+      select.addEventListener("change", async () => {
+        const response = await emitWithAck("room:setMap", {
+          mapId: select.value
+        });
+        if (!response.ok) {
+          setMessage(elements.lobbyMessage, response.message, true);
+        }
+      });
+      box.append(caption, select);
+    }
+    // No pisar la elección del anfitrión mientras el desplegable está abierto.
+    if (document.activeElement !== select) {
+      select.value = roomState.mapId;
+    }
+  } else {
+    box.replaceChildren();
+    const text = document.createElement("span");
+    text.innerHTML = `<strong>Mapa:</strong> ${mapName(roomState.mapId)}`;
+    box.appendChild(text);
+  }
+}
+
 async function createRoom() {
   setMessage(elements.connectionError);
-  const response = await emitWithAck("room:create", { name: getName() });
+  const response = await emitWithAck("room:create", {
+    name: getName(),
+    mapId: getSelectedMenuMapId()
+  });
 
   if (!response.ok) {
     setMessage(elements.connectionError, response.message, true);
@@ -596,6 +700,7 @@ function renderLobby() {
   }`;
 
   renderPlayers();
+  renderLobbyMap();
 
   const me = roomState.players.find(
     (player) => player.id === roomState.viewer.id
@@ -1111,9 +1216,14 @@ socket.on("game:camouflage", (payload) => {
   );
 });
 
-// Precargamos la configuración para que el mapa aparezca sin esperas al entrar en juego.
-ensureConfig().catch(() => {
-  /* Se reintentará al entrar en la fase de juego. */
-});
+// Precargamos la configuración para que el mapa aparezca sin esperas al entrar en juego,
+// y de paso rellenamos el selector de mapa del menú.
+ensureConfig()
+  .then(() => {
+    buildMenuMapSelect();
+  })
+  .catch(() => {
+    /* Se reintentará al entrar en la fase de juego. */
+  });
 
 showConnectionPanel();

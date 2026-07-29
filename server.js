@@ -129,6 +129,12 @@ function getPlayerRoom(socket) {
   return rooms.get(roomCode) ?? null;
 }
 
+/** Devuelve un mapId válido del catálogo, o el mapa por defecto si no lo es. */
+function resolveMapId(value) {
+  const exists = maps.some((map) => map.id === value);
+  return exists ? value : DEFAULT_MAP_ID;
+}
+
 function clampNumber(value, min, max) {
   if (value < min) return min;
   if (value > max) return max;
@@ -650,7 +656,7 @@ io.on("connection", (socket) => {
         hunterShotsRemaining: 0,
         lastShotAt: 0,
         round: 0,
-        mapId: DEFAULT_MAP_ID,
+        mapId: resolveMapId(payload?.mapId),
         phaseEndsAt: null,
         phaseTimer: null
       };
@@ -707,6 +713,27 @@ io.on("connection", (socket) => {
       player.ready = Boolean(payload?.ready);
       emitRoomState(room);
       callback({ ok: true });
+    } catch (error) {
+      callback({ ok: false, message: error.message });
+    }
+  });
+
+  socket.on("room:setMap", (payload, callback = () => {}) => {
+    try {
+      const room = getPlayerRoom(socket);
+      if (!room) {
+        throw new Error("No perteneces a ninguna sala.");
+      }
+      if (room.hostId !== socket.id) {
+        throw new Error("Solo el anfitrión puede elegir el mapa.");
+      }
+      if (room.phase !== "LOBBY") {
+        throw new Error("El mapa solo se puede cambiar en el lobby.");
+      }
+
+      room.mapId = resolveMapId(payload?.mapId);
+      emitRoomState(room);
+      callback({ ok: true, mapId: room.mapId });
     } catch (error) {
       callback({ ok: false, message: error.message });
     }
