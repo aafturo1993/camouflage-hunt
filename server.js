@@ -11,6 +11,7 @@ const {
   CHARACTER,
   HUNTER,
   PAINT,
+  SCORING,
   TIMERS,
   LIMITS,
   DEFAULT_MAP_ID
@@ -52,6 +53,7 @@ app.get("/api/config", (_request, response) => {
     character: CHARACTER,
     hunter: { shotCooldownMs: HUNTER.shotCooldownMs, extraShots: HUNTER.extraShots },
     paint: PAINT,
+    scoring: SCORING,
     limits: LIMITS,
     maps
   });
@@ -290,6 +292,22 @@ function publicRoomState(room, viewerId) {
             id: room.hunterId,
             name: room.players.get(room.hunterId)?.name ?? "Cazador"
           }
+        : null,
+    // Resultados de la ronda y clasificación de la sesión (módulo 6).
+    results:
+      room.phase === "RESULTS"
+        ? {
+            hunterName: room.players.get(room.hunterId)?.name ?? "Cazador",
+            rows: room.roundResults ?? [],
+            standings: [...room.players.values()]
+              .filter((player) => player.id !== room.hunterId)
+              .map((player) => ({
+                id: player.id,
+                name: player.name,
+                sessionScore: player.sessionScore ?? 0
+              }))
+              .sort((a, b) => b.sessionScore - a.sessionScore)
+          }
         : null
   };
 }
@@ -370,6 +388,10 @@ function beginPreparation(room) {
     player.rotation = 0;
     // Cada ronda se empieza sin pintura.
     player.paint = null;
+    // Datos de puntuación de la ronda (módulo 6).
+    player.foundAt = null;
+    player.camouflageCount = 0;
+    player.roundScore = 0;
     // El cazador no tiene personaje; cada escondido nace en un punto aleatorio
     // separado del resto para que no aparezcan superpuestos.
     if (player.id === room.hunterId) {
@@ -393,16 +415,107 @@ function beginSearch(room) {
   // Munición = escondidos + extra. Las posiciones quedan congeladas en este punto.
   room.hunterShotsRemaining = hiders.length + HUNTER.extraShots;
   room.lastShotAt = 0;
+  // Puntuación: desde aquí se cuenta el tiempo de supervivencia.
+  room.searchStartedAt = Date.now();
+  room.aim = null;
 
   schedulePhase(room, SEARCH_SECONDS, finishRound);
   emitRoomState(room);
   emitCharacters(room);
 }
 
+/**
+ * Detecta "apuntar sin disparar": el cursor del cazador se posa sobre un escondido
+ * durante SCORING.aimDwellMs y se le concede un bonus de camuflaje (con tope). Cada
+ * episodio (entrar el cursor, quedarse y salir) da como mucho un bonus.
+ */
+function processAim(room, x, y) {
+  let target = null;
+  for (const player of room.players.values()) {
+    if (player.id === room.hunterId || player.found || !player.position) {
+      continue;
+    }
+    if (isInsideCharacter(x, y, player.position, player.rotation ?? 0)) {
+      target = player;
+      break;
+    }
+  }
+
+  if (!target) {
+    room.aim = null;
+    return;
+  }
+
+  const now = Date.now();
+  if (!room.aim || room.aim.hiderId !== target.id) {
+    room.aim = { hiderId: target.id, since: now, credited: false };
+    return;
+  }
+
+  if (room.aim.credited || now - room.aim.since < SCORING.aimDwellMs) {
+    return;
+  }
+
+  if ((target.camouflageCount ?? 0) < SCORING.hider.maxCamouflageBonuses) {
+    target.camouflageCount = (target.camouflageCount ?? 0) + 1;
+    room.aim.credited = true;
+    // Aviso solo al escondido: su camuflaje ha funcionado.
+    io.to(target.id).emit("game:camouflage", {
+      count: target.camouflageCount
+    });
+  }
+}
+
+/**
+ * Calcula la puntuación de la ronda (solo escondidos) y la acumula en la sesión.
+ * Deja el desglose en room.roundResults para enviarlo en los resultados.
+ */
+function computeRoundScores(room, endedAt) {
+  const rows = [];
+  if (!room.searchStartedAt) {
+    room.roundResults = rows; // ronda abortada en preparación: sin puntos
+    return;
+  }
+
+  for (const player of room.players.values()) {
+    if (player.id === room.hunterId) {
+      continue;
+    }
+    const untilMs = (player.foundAt ?? endedAt) - room.searchStartedAt;
+    const survivalSeconds = Math.max(0, Math.floor(untilMs / 1000));
+    const camouflageBonuses = Math.min(
+      player.camouflageCount ?? 0,
+      SCORING.hider.maxCamouflageBonuses
+    );
+
+    const survivalPoints = survivalSeconds * SCORING.hider.perSecondHidden;
+    const survivalBonus = player.found ? 0 : SCORING.hider.survivalBonus;
+    const camouflagePoints = camouflageBonuses * SCORING.hider.camouflageBonus;
+    const roundScore = survivalPoints + survivalBonus + camouflagePoints;
+
+    player.roundScore = roundScore;
+    player.sessionScore = (player.sessionScore ?? 0) + roundScore;
+
+    rows.push({
+      id: player.id,
+      name: player.name,
+      found: player.found,
+      survivalSeconds,
+      camouflageBonuses,
+      roundScore
+    });
+  }
+
+  rows.sort((a, b) => b.roundScore - a.roundScore);
+  room.roundResults = rows;
+}
+
 function finishRound(room) {
   clearPhaseTimer(room);
+  computeRoundScores(room, Date.now());
   room.phase = "RESULTS";
   room.phaseEndsAt = null;
+  room.aim = null;
   emitRoomState(room);
 }
 
@@ -470,7 +583,12 @@ function addPlayerToRoom(socket, room, name) {
     position: null,
     locked: false,
     rotation: 0,
-    paint: null
+    paint: null,
+    // Puntuación (módulo 6). El acumulado de sesión persiste entre rondas.
+    foundAt: null,
+    camouflageCount: 0,
+    roundScore: 0,
+    sessionScore: 0
   };
 
   room.players.set(socket.id, player);
@@ -793,6 +911,8 @@ io.on("connection", (socket) => {
 
       room.lastShotAt = now;
       room.hunterShotsRemaining -= 1;
+      // Disparar cancela el episodio de apuntado en curso (no fue "apuntar sin disparar").
+      room.aim = null;
 
       let hitPlayer = null;
       for (const player of room.players.values()) {
@@ -837,6 +957,21 @@ io.on("connection", (socket) => {
     } catch (error) {
       callback({ ok: false, message: error.message });
     }
+  });
+
+  socket.on("hunter:aim", (payload) => {
+    // Posición del cursor del cazador durante la búsqueda, para el bonus de
+    // camuflaje. Llega limitada en frecuencia y no necesita acuse.
+    const room = getPlayerRoom(socket);
+    if (!room || room.phase !== "SEARCH" || room.hunterId !== socket.id) {
+      return;
+    }
+    const x = Number(payload?.x);
+    const y = Number(payload?.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return;
+    }
+    processAim(room, x, y);
   });
 
   socket.on("disconnect", () => {

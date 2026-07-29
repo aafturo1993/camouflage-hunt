@@ -76,6 +76,22 @@ const PAINT = {
   snapshotMinIntervalMs: 400
 };
 
+// Puntuación (módulo 6). Solo puntúan los escondidos; el cazador no.
+// - perSecondHidden: puntos por cada segundo con vida.
+// - survivalBonus: extra si el escondido llega vivo al final de la ronda.
+// - camouflageBonus: extra cada vez que el cazador le apunta sin disparar
+//   (el cursor se posa sobre él durante aimDwellMs y se va). Premia el camuflaje.
+// - maxCamouflageBonuses: tope de bonus de camuflaje por ronda, para no acumular sin fin.
+const SCORING = {
+  aimDwellMs: 500,
+  hider: {
+    perSecondHidden: 1,
+    survivalBonus: 150,
+    camouflageBonus: 25,
+    maxCamouflageBonuses: 4
+  }
+};
+
 const TIMERS = {
   preparationSeconds: 120,
   searchSeconds: 180
@@ -96,6 +112,7 @@ module.exports = {
   CHARACTER,
   HUNTER,
   PAINT,
+  SCORING,
   TIMERS,
   LIMITS,
   DEFAULT_MAP_ID
