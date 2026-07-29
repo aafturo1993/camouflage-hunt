@@ -599,10 +599,11 @@
         ctx.translate(-screen.x, -screen.y);
       }
 
-      // Borde. Durante la partida es el mínimo imprescindible: un píxel muy
-      // tenue, lo justo para que el cazador tenga algo a lo que agarrarse sin
-      // regalarle la silueta. Al acabar, en el revelado, se marca de verdad
-      // para que se vea dónde estaba cada uno y lo bien que se camufló.
+      // Borde SOLO en el revelado del final. Durante la partida no se dibuja
+      // ninguno: se probó con un píxel y con una fracción de píxel, y por tenue
+      // que fuera el perfil acababa cantando y delataba al escondido, que es
+      // justo lo que el juego tiene que ocultar. Lo que le queda al cazador es
+      // acercarse a mirar: para eso puede llegar hasta el 800 %.
       if (options.reveal) {
         this._drawOutline(left, top, width, height, {
           color: "#11161b",
@@ -615,18 +616,6 @@
           offset: 1.5,
           alpha: 0.95,
           diagonal: true
-        });
-      } else {
-        // El borde crece con el acercamiento en vez de ser fijo. En la vista de
-        // conjunto, que es desde donde el cazador barre el mapa, se queda en una
-        // fracción de píxel y no se distingue; solo cuando se acerca de verdad a
-        // mirar una zona llega a un píxel. Antes era 1 píxel siempre y a esa
-        // distancia el monigote se reconocía a la primera pasada.
-        this._drawOutline(left, top, width, height, {
-          color: "#0f1419",
-          offset: clamp(zoom * 0.2, 0.12, 1),
-          alpha: 0.14,
-          diagonal: false
         });
       }
 
