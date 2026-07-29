@@ -37,8 +37,8 @@ const CAMERA = {
 // El personaje se ancla por su CENTRO.
 const CHARACTER = {
   sprite: "/assets/players/monigote-01.png",
-  width: 37,
-  height: 66,
+  width: 41,
+  height: 73,
   speed: 340,
   // El escondido gira su monigote con la tecla R. Cada pulsación suma este
   // ángulo, así que ocho pulsaciones dan la vuelta completa y lo devuelven
