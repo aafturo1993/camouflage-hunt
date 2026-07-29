@@ -540,15 +540,23 @@ input:focus {
 }
 
 /*
-  Cuando se puede pintar (la barra de pintura está a la vista), el puntero deja
-  de ser una mano y pasa a ser un círculo con el centro marcado, como en
-  cualquier herramienta de dibujo: señala el punto exacto donde cae el trazo sin
-  tapar lo que se está pintando.
-
-  Va doblado en negro y blanco para que se distinga tanto sobre mapas claros
-  como oscuros.
+  Mientras se puede pintar, la mano de arrastrar sobra: en preparación el mapa
+  no se arrastra. El puntero se queda en su forma normal...
 */
 .game-stage:has(#paint-toolbar:not(.hidden)) .game-canvas {
+  cursor: default;
+}
+
+/*
+  ...y solo al pasar por encima del monigote, que es lo único que se puede
+  pintar, se convierte en un círculo con el centro marcado, como en cualquier
+  herramienta de dibujo: señala dónde cae el trazo sin tapar lo que pintas. Así
+  se ve de un vistazo dónde empieza y acaba la zona pintable.
+
+  El motor pone la marca "over-character" cuando el puntero entra en el cuerpo.
+  Va doblado en negro y blanco para distinguirse sobre mapas claros y oscuros.
+*/
+.game-stage:has(#paint-toolbar:not(.hidden)) .game-canvas.over-character {
   cursor:
     url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24'><circle cx='12' cy='12' r='8' fill='none' stroke='rgba(0,0,0,0.8)' stroke-width='3.5'/><circle cx='12' cy='12' r='8' fill='none' stroke='rgba(255,255,255,0.95)' stroke-width='1.6'/><circle cx='12' cy='12' r='1.3' fill='rgba(255,255,255,0.95)'/><circle cx='12' cy='12' r='2.2' fill='none' stroke='rgba(0,0,0,0.8)' stroke-width='0.9'/></svg>")
       12 12,

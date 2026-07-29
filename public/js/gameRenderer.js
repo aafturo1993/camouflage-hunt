@@ -231,6 +231,48 @@
       return this.paintAnchor != null;
     }
 
+    /**
+     * Marca el canvas cuando el puntero está sobre el cuerpo del monigote, que
+     * es lo único que se puede pintar. El CSS usa esa marca para cambiar el
+     * puntero al círculo de pintura y así se ve de un vistazo dónde pinta.
+     */
+    _updatePaintCursor(event) {
+      const anchor = this._canPaintNow() ? this.getPaintAnchor() : null;
+      if (!anchor) {
+        this.canvas.classList.remove("over-character");
+        return;
+      }
+      // Mientras se está dando un trazo, el puntero no cambia aunque el ratón
+      // se salga del cuerpo: el trazo sigue siendo válido.
+      if (this._pointer) {
+        this.canvas.classList.add("over-character");
+        return;
+      }
+      // Medir el canvas cuesta, así que se hace solo si de verdad se puede
+      // pintar: al cazador, que mueve el ratón sin parar, no le cuesta nada.
+      const point = this._localPointer(event);
+      const world = this.camera.screenToWorld(point.x, point.y);
+      this.canvas.classList.toggle(
+        "over-character",
+        this._isOverCharacter(world, anchor)
+      );
+    }
+
+    /** ¿El punto de mundo cae dentro del cuerpo del monigote? */
+    _isOverCharacter(world, anchor) {
+      const radians = (-(anchor.rotation || 0) * Math.PI) / 180;
+      const cos = Math.cos(radians);
+      const sin = Math.sin(radians);
+      const dx = world.x - anchor.x;
+      const dy = world.y - anchor.y;
+      const localX = dx * cos - dy * sin;
+      const localY = dx * sin + dy * cos;
+      return (
+        Math.abs(localX) <= this.character.width / 2 &&
+        Math.abs(localY) <= this.character.height / 2
+      );
+    }
+
     /** Posición y giro del monigote que se está pintando. */
     getPaintAnchor() {
       if (this.mode === "PREP" && this.self) {
@@ -738,6 +780,16 @@
           const world = this.camera.screenToWorld(point.x, point.y);
           this.onPaint("down", world, point);
         }
+      });
+
+      // Puntero en reposo: solo sirve para saber si está sobre el monigote y
+      // cambiar el cursor. El seguimiento del arrastre va aparte, más abajo.
+      canvas.addEventListener("pointermove", (event) => {
+        this._updatePaintCursor(event);
+      });
+
+      canvas.addEventListener("pointerleave", () => {
+        canvas.classList.remove("over-character");
       });
 
       canvas.addEventListener("pointermove", (event) => {
