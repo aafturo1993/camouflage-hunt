@@ -24,6 +24,17 @@ const SEARCH_SECONDS = TIMERS.searchSeconds;
 const MAX_PLAYERS = LIMITS.maxPlayers;
 const MIN_PLAYERS = LIMITS.minPlayers;
 
+/** Log con marca de tiempo. Simple a propósito: sale por la salida estándar,
+ *  que es lo que recogen Docker y el servidor de la empresa. */
+function log(message, extra) {
+  const stamp = new Date().toISOString();
+  if (extra !== undefined) {
+    console.log(`[${stamp}] ${message}`, extra);
+  } else {
+    console.log(`[${stamp}] ${message}`);
+  }
+}
+
 const app = express();
 const httpServer = http.createServer(app);
 const io = new Server(httpServer, {
@@ -406,6 +417,10 @@ function beginPreparation(room) {
     placed.push(player.position);
   }
 
+  log(
+    `Sala ${room.code}: ronda ${room.round} · preparación · ` +
+      `${connectedPlayers.length} jugadores · cazador ${room.hunterId ? room.players.get(room.hunterId)?.name : "—"}`
+  );
   schedulePhase(room, PREPARATION_SECONDS, beginSearch);
   emitRoomState(room);
 }
@@ -423,6 +438,7 @@ function beginSearch(room) {
   room.searchStartedAt = Date.now();
   room.aim = null;
 
+  log(`Sala ${room.code}: ronda ${room.round} · búsqueda · ${room.hunterShotsRemaining} disparos`);
   schedulePhase(room, SEARCH_SECONDS, finishRound);
   emitRoomState(room);
   emitCharacters(room);
@@ -520,6 +536,7 @@ function finishRound(room) {
   room.phase = "RESULTS";
   room.phaseEndsAt = null;
   room.aim = null;
+  log(`Sala ${room.code}: ronda ${room.round} · resultados`);
   emitRoomState(room);
   // Revelado: se reenvía la lista con los nombres para que todos vean dónde y
   // cómo se camufló cada monigote, cazados y supervivientes.
@@ -605,6 +622,13 @@ function addPlayerToRoom(socket, room, name) {
 }
 
 io.on("connection", (socket) => {
+  log(`Conexión ${socket.id} · ${io.engine.clientsCount} conectados`);
+
+  // Un error en un socket concreto no debe propagarse ni tumbar el proceso.
+  socket.on("error", (error) => {
+    log(`Error en el socket ${socket.id}: ${error?.message ?? error}`);
+  });
+
   socket.on("room:create", (payload, callback = () => {}) => {
     try {
       removeSocketFromPreviousRoom(socket);
@@ -633,6 +657,7 @@ io.on("connection", (socket) => {
 
       rooms.set(code, room);
       addPlayerToRoom(socket, room, name);
+      log(`Sala ${code} creada por "${name}" · ${rooms.size} salas activas`);
       callback({ ok: true, roomCode: code });
     } catch (error) {
       callback({ ok: false, message: error.message });
@@ -982,6 +1007,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
+    log(`Desconexión ${socket.id} · ${io.engine.clientsCount} conectados`);
     const room = getPlayerRoom(socket);
     if (!room) {
       return;
@@ -992,6 +1018,7 @@ io.on("connection", (socket) => {
     if (room.players.size === 0) {
       clearPhaseTimer(room);
       rooms.delete(room.code);
+      log(`Sala ${room.code} vacía y eliminada · ${rooms.size} salas activas`);
       return;
     }
 
@@ -1031,6 +1058,15 @@ io.on("connection", (socket) => {
   });
 });
 
+// Red de seguridad: un fallo inesperado se registra pero no tumba el servidor,
+// para no dejar la partida colgada por el error de un cliente.
+process.on("uncaughtException", (error) => {
+  log(`Excepción no capturada: ${error?.stack ?? error}`);
+});
+process.on("unhandledRejection", (reason) => {
+  log(`Promesa rechazada sin manejar: ${reason}`);
+});
+
 httpServer.listen(PORT, "0.0.0.0", () => {
-  console.log(`Camouflage Hunt disponible en http://localhost:${PORT}`);
+  log(`Camouflage Hunt escuchando en http://0.0.0.0:${PORT}`);
 });
