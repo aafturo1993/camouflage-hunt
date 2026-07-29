@@ -215,6 +215,9 @@ function isInsideCharacter(x, y, position, rotationDegrees = 0) {
 
 /** Lista de personajes visible en búsqueda (sin nombres: el cazador no debe verlos). */
 function characterList(room) {
+  // En los resultados se revela quién es cada monigote; durante la búsqueda no,
+  // para que el cazador no vea los nombres.
+  const revealNames = room.phase === "RESULTS";
   return [...room.players.values()]
     .filter((player) => player.id !== room.hunterId && player.position)
     .map((player) => ({
@@ -223,6 +226,7 @@ function characterList(room) {
       y: player.position.y,
       rotation: player.rotation ?? 0,
       found: player.found,
+      name: revealNames ? player.name : undefined,
       // La pintura del jugador (snapshot). Solo viaja en búsqueda/resultados.
       paint: player.paint ?? null
     }));
@@ -517,6 +521,9 @@ function finishRound(room) {
   room.phaseEndsAt = null;
   room.aim = null;
   emitRoomState(room);
+  // Revelado: se reenvía la lista con los nombres para que todos vean dónde y
+  // cómo se camufló cada monigote, cazados y supervivientes.
+  emitCharacters(room);
 }
 
 function resetToLobby(room) {
