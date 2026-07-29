@@ -157,7 +157,8 @@ function ensureRenderer() {
     // Pintura: el ratón en preparación pinta el monigote (o clona color con el
     // cuentagotas si está activo).
     renderer.onPaint = (type, world, screen) => {
-      if (!paintEngine || !renderer.self) {
+      const anchor = renderer.getPaintAnchor();
+      if (!paintEngine || !anchor) {
         return;
       }
       if (eyedropperActive) {
@@ -177,9 +178,9 @@ function ensureRenderer() {
         return; // mientras el cuentagotas está activo no se pinta
       }
       if (type === "down") {
-        paintEngine.beginStroke(world, renderer.self.x, renderer.self.y, renderer.rotation);
+        paintEngine.beginStroke(world, anchor.x, anchor.y, anchor.rotation);
       } else if (type === "move") {
-        paintEngine.continueStroke(world, renderer.self.x, renderer.self.y, renderer.rotation);
+        paintEngine.continueStroke(world, anchor.x, anchor.y, anchor.rotation);
       } else if (type === "up") {
         paintEngine.endStroke();
       }
@@ -728,20 +729,60 @@ async function updateStage() {
 
   engine.start();
 
-  // Pintura: la barra solo se muestra al escondido en preparación.
-  const isHiderPrep = phase === "PREPARATION" && !isHunter;
+  // Pintura: el escondido puede pintar en preparación y también en la búsqueda
+  // mientras no lo hayan encontrado (por si no le dio tiempo). Al cazarle, se acabó.
+  const canPaint =
+    !isHunter &&
+    !roomState.viewer.found &&
+    (phase === "PREPARATION" || phase === "SEARCH");
+
   if (elements.paintToolbar) {
-    setHidden(elements.paintToolbar, !isHiderPrep);
+    setHidden(elements.paintToolbar, !canPaint);
   }
-  if (!isHiderPrep) {
+
+  if (!canPaint) {
     setEyedropper(false);
+    engine.setPaintAnchor(null);
   } else {
     setupPaint().then((paint) => {
-      if (paint && stageChanged) {
-        // Ronda nueva: lienzo limpio y se le quita la pintura al servidor.
+      if (!paint) {
+        return;
+      }
+      // Solo se reinicia el lienzo al empezar una preparación nueva, nunca al
+      // pasar a búsqueda: allí se sigue con la misma pintura.
+      if (stageChanged && phase === "PREPARATION") {
         paint.reset();
         paint.flush();
       }
+    });
+    if (phase === "SEARCH") {
+      refreshPaintAnchor();
+    }
+  }
+}
+
+/** Fija en el motor el punto de pintura en búsqueda: el propio monigote congelado. */
+function refreshPaintAnchor() {
+  if (!renderer || !roomState) {
+    return;
+  }
+  if (
+    roomState.phase !== "SEARCH" ||
+    roomState.viewer.role !== "HIDER" ||
+    roomState.viewer.found
+  ) {
+    renderer.setPaintAnchor(null);
+    return;
+  }
+  const own = latestCharacters.find(
+    (character) => character.id === roomState.viewer.id
+  );
+  const position = own ?? roomState.viewer.position;
+  if (position) {
+    renderer.setPaintAnchor({
+      x: position.x,
+      y: position.y,
+      rotation: own?.rotation ?? 0
     });
   }
 }
@@ -886,7 +927,20 @@ socket.on("game:characters", (payload) => {
   latestCharacters = payload?.characters ?? [];
   if (renderer) {
     renderer.setCharacters(latestCharacters);
+    refreshPaintAnchor();
   }
+});
+
+socket.on("game:paint", (payload) => {
+  // Pintura en vivo de un escondido durante la búsqueda.
+  if (!payload || !renderer) {
+    return;
+  }
+  const character = latestCharacters.find((entry) => entry.id === payload.id);
+  if (character) {
+    character.paint = payload.paint ?? null;
+  }
+  renderer.setCharacters(latestCharacters);
 });
 
 socket.on("game:shot", (payload) => {

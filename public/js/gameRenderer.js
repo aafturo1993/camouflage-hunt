@@ -65,10 +65,13 @@
       this.onSelfMove = null;
       this.onShoot = null;
       this.onLockToggle = null;
-      // Pintura (módulo 4). El cliente enruta aquí el ratón en preparación.
+      // Pintura (módulo 4). El cliente enruta aquí el ratón cuando se puede pintar.
       this.onPaint = null;
       this.selfTextureCanvas = null;
       this._paintCache = new Map(); // id -> { src, image } para dibujar en búsqueda
+      // Punto sobre el que pintar en búsqueda (el propio monigote congelado del
+      // escondido que aún no ha sido encontrado). null = no se pinta en búsqueda.
+      this.paintAnchor = null;
 
       this.running = false;
       this._rafId = null;
@@ -204,8 +207,36 @@
       this.self = null;
       this.locked = false;
       this.allowShoot = Boolean(options.shoot);
+      this.paintAnchor = null;
       this.effects = [];
       this._keys.clear();
+    }
+
+    /**
+     * Fija el punto de pintura en búsqueda: el propio monigote del escondido no
+     * encontrado. Con null, no se pinta (cazador, ya encontrado, o preparación).
+     */
+    setPaintAnchor(anchor) {
+      this.paintAnchor =
+        anchor && Number.isFinite(anchor.x) && Number.isFinite(anchor.y)
+          ? { x: anchor.x, y: anchor.y, rotation: anchor.rotation ?? 0 }
+          : null;
+    }
+
+    /** ¿Se puede pintar ahora? En preparación siempre; en búsqueda si hay ancla. */
+    _canPaintNow() {
+      if (this.mode === "PREP") {
+        return Boolean(this.self);
+      }
+      return this.paintAnchor != null;
+    }
+
+    /** Posición y giro del monigote que se está pintando. */
+    getPaintAnchor() {
+      if (this.mode === "PREP" && this.self) {
+        return { x: this.self.x, y: this.self.y, rotation: this.rotation };
+      }
+      return this.paintAnchor;
     }
 
     setCharacters(list) {
@@ -213,6 +244,7 @@
       // Carga (y cachea) la pintura de cada personaje para dibujarla en búsqueda.
       for (const character of characters) {
         if (!character.paint) {
+          character._paintImage = null;
           continue;
         }
         let entry = this._paintCache.get(character.id);
@@ -302,6 +334,9 @@
       if (this.mode === "PREP" && this.self) {
         this._updateMovement(dt, timestamp);
         this.camera.centerOnWorld(this.self.x, this.self.y);
+      } else if (this.mode === "SEARCH" && this.paintAnchor) {
+        // El escondido que sigue pintando ve su monigote centrado.
+        this.camera.centerOnWorld(this.paintAnchor.x, this.paintAnchor.y);
       }
     }
 
@@ -399,12 +434,18 @@
         });
       } else if (this.mode === "SEARCH") {
         for (const character of this.characters) {
+          const isSelf = character.id != null && character.id === this.viewerId;
+          // Si soy un escondido que sigue pintando, mi monigote muestra la textura
+          // en vivo, no la última recibida por red.
+          const texture =
+            isSelf && this.paintAnchor && this.selfTextureCanvas
+              ? this.selfTextureCanvas
+              : character._paintImage;
           this._drawCharacter(character.x, character.y, {
             found: character.found,
             rotation: character.rotation ?? 0,
-            // F-12: marca cuál es el personaje del propio jugador.
-            isSelf: character.id != null && character.id === this.viewerId,
-            texture: character._paintImage
+            isSelf, // F-12: marca cuál es el personaje del propio jugador.
+            texture
           });
         }
       }
@@ -686,8 +727,8 @@
           /* no crítico */
         }
 
-        // En preparación el ratón pinta el monigote.
-        if (this.mode === "PREP" && typeof this.onPaint === "function") {
+        // El ratón pinta el monigote (preparación, o búsqueda si aún se puede).
+        if (this._canPaintNow() && typeof this.onPaint === "function") {
           const world = this.camera.screenToWorld(point.x, point.y);
           this.onPaint("down", world, point);
         }
@@ -710,13 +751,13 @@
           this._pointer.moved = true;
         }
 
-        // Fuera de preparación el arrastre mueve la cámara; en preparación pinta.
-        if (this.mode !== "PREP") {
-          canvas.classList.add("grabbing");
-          this.camera.panByScreen(dx, dy);
-        } else if (typeof this.onPaint === "function") {
+        // Si se puede pintar, el ratón pinta; si no, arrastra la cámara.
+        if (this._canPaintNow() && typeof this.onPaint === "function") {
           const world = this.camera.screenToWorld(point.x, point.y);
           this.onPaint("move", world, point);
+        } else {
+          canvas.classList.add("grabbing");
+          this.camera.panByScreen(dx, dy);
         }
       });
 
@@ -741,8 +782,8 @@
           }
         }
 
-        // Fin de trazo de pintura en preparación.
-        if (this.mode === "PREP" && typeof this.onPaint === "function") {
+        // Fin de trazo de pintura (preparación o búsqueda).
+        if (this._canPaintNow() && typeof this.onPaint === "function") {
           const world = this.camera.screenToWorld(point.x, point.y);
           this.onPaint("up", world, point);
         }

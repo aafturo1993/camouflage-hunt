@@ -272,6 +272,8 @@ function publicRoomState(room, viewerId) {
       name: viewer?.name ?? "",
       role: viewerRole,
       isHost: room.hostId === viewerId,
+      // Si al propio escondido ya lo han encontrado (deja de poder pintar).
+      found: Boolean(viewer?.found),
       // Solo el propio escondido recibe su posición (el cazador nunca la ve).
       position: isHiderInPlay && viewer?.position ? viewer.position : null,
       // Munición solo para el cazador durante la búsqueda.
@@ -714,17 +716,25 @@ io.on("connection", (socket) => {
       if (!room || !player) {
         throw new Error("No perteneces a ninguna sala.");
       }
-      if (room.phase !== "PREPARATION") {
-        throw new Error("Solo puedes pintar durante la preparación.");
+      // Se puede pintar durante la preparación y también durante la búsqueda
+      // (por si no dio tiempo a terminar), pero no una vez encontrado.
+      if (room.phase !== "PREPARATION" && room.phase !== "SEARCH") {
+        throw new Error("Solo puedes pintar durante la partida.");
       }
       if (room.hunterId === socket.id) {
         throw new Error("El cazador no controla ningún personaje.");
+      }
+      if (player.found) {
+        throw new Error("Ya te han encontrado; no puedes seguir pintando.");
       }
 
       const image = payload?.image;
       // Lienzo vacío (o borrado): se quita la pintura.
       if (image == null || image === "") {
         player.paint = null;
+        if (room.phase === "SEARCH") {
+          io.to(room.code).emit("game:paint", { id: player.id, paint: null });
+        }
         callback({ ok: true });
         return;
       }
@@ -738,9 +748,12 @@ io.on("connection", (socket) => {
         throw new Error("La pintura ocupa demasiado.");
       }
 
-      // No se reemite: la pintura solo llega a los demás en la búsqueda, dentro
-      // de la lista de personajes. Así el cazador no la ve durante la preparación.
       player.paint = image;
+      // En preparación NO se reemite (el cazador no debe verla todavía). En la
+      // búsqueda la pintura ya es visible, así que se difunde al momento.
+      if (room.phase === "SEARCH") {
+        io.to(room.code).emit("game:paint", { id: player.id, paint: player.paint });
+      }
       callback({ ok: true });
     } catch (error) {
       callback({ ok: false, message: error.message });
