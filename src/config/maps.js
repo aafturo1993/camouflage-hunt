@@ -35,6 +35,11 @@ const maps = [
   map("montanas", "Montañas", "montanas.jpg"),
   map("galaxia", "Galaxia", "galaxia.jpg"),
   map("skyline", "Skyline", "skyline.jpg"),
+  map("homer", "Homer", "homer.jpg"),
+  map("lego", "Lego", "lego.jpg"),
+  map("lotr", "El Señor de los Anillos", "lotr.jpg"),
+  map("trono-de-hierro", "Trono de Hierro", "trono-de-hierro.jpg"),
+  map("rey-de-la-noche", "El Rey de la Noche", "rey-de-la-noche.jpg"),
   map("placeholder-01", "Escenario de pruebas", "placeholder-01.png")
 ];
 
